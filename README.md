@@ -54,6 +54,19 @@ npm run db:seed             # 写入预置账号
 npm run dev                 # http://localhost:3000
 ```
 
+### 关于 db:push
+
+建表走的是 `prisma db push` —— 把 `schema.prisma` 的当前状态直接推给数据库，
+仓库里**没有 `prisma/migrations/`，也没有版本化的迁移历史**。改完 schema 再跑一次
+`npm run db:push` 就同步了，不用生成迁移文件。
+
+代价是：
+
+- schema 怎么一步步演化过来的没有记录，别人拉下来只能得到当前快照
+- 破坏性变更（删列、改字段类型）`db push` 会先提示，必要时要 `--accept-data-loss`。
+  **动这类改动前先 `npm run db:backup`**
+- 单人单机够用；将来要上多环境或生产，改用 `prisma migrate dev` 生成迁移文件
+
 **不开放注册**，用预置账号登录：
 
 | 邮箱 | 密码 |
