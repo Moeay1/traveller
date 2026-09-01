@@ -2,8 +2,8 @@ import type { Metadata, Viewport } from 'next'
 import './globals.css'
 
 export const metadata: Metadata = {
-  title: '旅痕 · 中国足迹图',
-  description: '点亮走过的每一座地级市，记录日期与备注。',
+  title: '旅痕 · 足迹图',
+  description: '点亮走过的每一座城，记录日期与备注。',
 }
 
 export const viewport: Viewport = {
