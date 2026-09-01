@@ -1,0 +1,719 @@
+:root{
+  --paper:#F7F8FA; --paper-2:#FFFFFF; --panel:#FFFFFF; --line:#E2E6EB;
+  --land:#E7EBF0; --land-edge:#CDD4DC; --land-hover:#DAE0E8;
+  --lit:#D2801B; --lit-core:#F0A43A; --lit-soft:#FBEBD4;
+  --tx:#1B222B; --tx-mid:#5C6875; --tx-dim:#8B96A3;
+  --ok:#2E8B6E; --warn:#C4552E;
+  --r:4px;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0; background:var(--paper); color:var(--tx);
+  font-family:"Noto Sans SC",-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;
+  font-weight:300; -webkit-font-smoothing:antialiased;
+  overflow:hidden;
+}
+.mono{font-family:"IBM Plex Mono","SF Mono",monospace;font-variant-numeric:tabular-nums}
+button{font:inherit;color:inherit;background:none;border:none;cursor:pointer}
+input,textarea{font:inherit;color:inherit}
+:focus-visible{outline:1.5px solid var(--lit);outline-offset:2px}
+
+#app{display:grid;grid-template-columns:326px 1fr;height:100%;position:relative;
+  overflow:hidden}   /* 抽屉收起时停在视口外，不裁掉的话动画期间会闪出横向滚动条 */
+@media(max-width:1180px){#app{grid-template-columns:288px 1fr}}
+
+/* ---------- 地图区 ---------- */
+#left{background:var(--panel);border-right:1px solid var(--line);
+  display:flex;flex-direction:column;min-height:0}
+.left-handle{display:none}   /* 只在手机上出现 */
+.brand{padding:24px 20px 18px}
+.brand h1{font-family:"Noto Serif SC",serif;font-weight:700;font-size:23px;margin:0;letter-spacing:.18em}
+.brand p{margin:6px 0 0;font-size:10.5px;color:var(--tx-dim);letter-spacing:.22em}
+
+#stage{position:relative;overflow:hidden;background:
+  radial-gradient(120% 90% at 50% 38%, #FFFFFF 0%, #EFF2F6 78%)}
+#map{width:100%;height:100%;display:block;cursor:grab;touch-action:none}
+#map.drag{cursor:grabbing}
+.city{fill:var(--land);stroke:var(--land-edge);stroke-width:.45;vector-effect:non-scaling-stroke;
+  transition:fill .18s ease}
+.city:not(.lit):hover{fill:var(--land-hover)}
+.city.lit{stroke:rgba(27,34,43,.4);stroke-width:.6}
+.city.lit:hover{filter:brightness(1.14)}   /* 颜色因人而异，用提亮代替固定的悬停色 */
+.city.sel{stroke:#1B222B;stroke-width:1.4}
+#litLayer{pointer-events:none}
+.jd{fill:none;stroke:#AEB8C4;stroke-width:1.6;vector-effect:non-scaling-stroke;stroke-linecap:round}
+#pvLayer{pointer-events:none}
+.prov{fill:none;stroke:#96A2B0;stroke-width:1.3;vector-effect:non-scaling-stroke;
+  stroke-linejoin:round;stroke-linecap:round}
+.lbl{font-family:"Noto Sans SC",sans-serif;font-size:9px;font-weight:500;fill:#1B222B;
+  paint-order:stroke;stroke:#FFFFFF;stroke-width:2.8px;pointer-events:none;text-anchor:middle}
+
+.tools{position:absolute;top:26px;left:26px;right:26px;z-index:3;
+  display:flex;gap:8px;align-items:center;justify-content:flex-end;
+  transition:right .3s cubic-bezier(.32,.72,0,1);pointer-events:none}
+.tools > *{pointer-events:auto}          /* 容器横跨整个地图，只有控件本身接事件 */
+.search{flex:0 1 184px;min-width:0}      /* 地图变窄时搜索框先让步，按钮不被挤出去 */
+.search{position:relative}
+.search input{width:100%;padding:8px 11px;background:rgba(255,255,255,.9);border:1px solid var(--line);
+  border-radius:var(--r);font-size:12.5px;backdrop-filter:blur(6px);box-shadow:0 1px 3px rgba(27,34,43,.06)}
+.search input::placeholder{color:var(--tx-dim)}
+.sug{position:absolute;top:38px;left:0;right:0;background:var(--panel);border:1px solid var(--line);
+  border-radius:var(--r);max-height:250px;overflow:auto;display:none;z-index:5;
+  box-shadow:0 8px 24px rgba(27,34,43,.1)}
+.sug.on{display:block}
+.sug button{display:flex;justify-content:space-between;width:100%;padding:7px 11px;font-size:12.5px;text-align:left}
+.sug button:hover{background:var(--paper)}
+.sug small{color:var(--tx-dim)}
+.zoom{display:flex;border:1px solid var(--line);border-radius:var(--r);overflow:hidden;
+  background:rgba(255,255,255,.9);backdrop-filter:blur(6px);box-shadow:0 1px 3px rgba(27,34,43,.06)}
+.zoom button{width:32px;height:33px;font-size:14px;color:var(--tx-mid)}
+.zoom button:hover{background:var(--paper);color:var(--tx)}
+.zoom button+button{border-left:1px solid var(--line)}
+
+#inset{position:absolute;right:26px;bottom:26px;
+  transition:right .3s cubic-bezier(.32,.72,0,1);
+  border:1px solid var(--line);border-radius:var(--r);background:rgba(255,255,255,.86);z-index:2}
+#inset svg{width:100%;height:100%}
+#inset span{position:absolute;bottom:5px;left:0;right:0;text-align:center;font-size:9px;
+  color:var(--tx-dim);letter-spacing:.16em}
+
+/* ---------- 回放 ---------- */
+.btn-play{padding:8px 14px;border:1px solid var(--line);border-radius:var(--r);font-size:12.5px;
+  background:rgba(255,255,255,.9);backdrop-filter:blur(6px);color:var(--tx-mid);
+  box-shadow:0 1px 3px rgba(27,34,43,.06);transition:.15s;white-space:nowrap}
+.btn-play:hover{color:var(--lit);border-color:var(--lit-core)}
+
+#play{position:absolute;left:26px;right:26px;bottom:24px;z-index:7;
+  display:flex;align-items:center;gap:16px;padding:14px 18px;
+  background:rgba(255,255,255,.94);backdrop-filter:blur(10px);
+  border:1px solid var(--line);border-radius:8px;
+  box-shadow:0 8px 28px rgba(27,34,43,.11)}
+#play[hidden]{display:none}
+#pyBtn{flex:none;width:38px;height:38px;border-radius:50%;background:var(--lit);color:#fff;
+  font-size:13px;display:flex;align-items:center;justify-content:center;transition:.15s}
+#pyBtn:hover{background:#B96D12}
+.py-mid{flex:1;min-width:0}
+.py-top{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:9px}
+.py-top b{font-size:14px;font-weight:500;letter-spacing:.04em}
+.py-top span{font-size:11.5px;color:var(--tx-dim)}
+.py-track{position:relative;height:22px;cursor:pointer;touch-action:none}
+.py-track::before{content:'';position:absolute;left:0;right:0;top:9px;height:4px;
+  border-radius:2px;background:#DDE3EA}
+.py-fill{position:absolute;left:0;top:9px;height:4px;border-radius:2px;
+  background:var(--lit);width:0}
+.py-dot{position:absolute;top:5px;left:0;width:12px;height:12px;margin-left:-6px;border-radius:50%;
+  background:#fff;border:2.5px solid var(--lit);box-shadow:0 1px 4px rgba(27,34,43,.2)}
+.py-track:focus-visible{outline:none}
+.py-track:focus-visible .py-dot{box-shadow:0 0 0 4px var(--lit-soft)}
+.py-ticks{position:absolute;left:0;right:0;top:15px;height:8px}
+.py-ticks i{position:absolute;top:0;width:1px;height:4px;background:var(--land-edge)}
+.py-ticks em{position:absolute;top:5px;transform:translateX(-50%);font-style:normal;
+  font-family:"IBM Plex Mono",monospace;font-size:9px;color:var(--tx-dim)}
+.py-speed{flex:none;font-family:"IBM Plex Mono",monospace;font-size:11.5px;color:var(--tx-mid);
+  padding:6px 9px;border-radius:var(--r);border:1px solid var(--line);
+  font-variant-numeric:tabular-nums;transition:.15s}
+.py-speed:hover{border-color:var(--lit);color:var(--lit)}
+.py-exit{flex:none;font-size:12px;color:var(--tx-dim);padding:7px 11px;border-radius:var(--r)}
+.py-exit:hover{background:var(--land);color:var(--tx)}
+
+#pyCap{position:absolute;left:50%;bottom:118px;transform:translateX(-50%);z-index:6;
+  max-width:390px;padding:13px 17px;text-align:center;
+  background:rgba(255,255,255,.95);backdrop-filter:blur(8px);
+  border:1px solid var(--line);border-radius:8px;
+  box-shadow:0 6px 22px rgba(27,34,43,.1);
+  animation:capIn .45s cubic-bezier(.32,.72,0,1)}
+#pyCap[hidden]{display:none}
+#pyCap b{font-family:"Noto Serif SC",serif;font-size:17px;font-weight:500}
+#pyCap time{margin-left:10px;font-size:11.5px;color:var(--lit)}
+#pyCap .nth{margin-left:8px;padding:2px 8px;border-radius:99px;font-size:10.5px;
+  background:var(--lit-soft);color:#8A5310;letter-spacing:.06em;vertical-align:2px}
+#pyCap p{margin:7px 0 0;font-size:12.5px;color:var(--tx-mid);line-height:1.65;font-weight:300}
+@keyframes capIn{from{opacity:0;transform:translate(-50%,8px)}to{opacity:1;transform:translate(-50%,0)}}
+
+.ping{fill:none;stroke-width:1.8;vector-effect:non-scaling-stroke;
+  transform-box:fill-box;transform-origin:center;animation:ping .95s ease-out forwards;pointer-events:none}
+@keyframes ping{from{transform:scale(.15);opacity:.9}to{transform:scale(3.4);opacity:0}}
+.ping.delay{animation-delay:.28s}
+
+body.playing #inset,body.playing .legend{opacity:0;pointer-events:none;transition:opacity .25s}
+
+#tip{position:absolute;z-index:6;pointer-events:none;opacity:0;transition:opacity .12s;
+  background:#FFFFFF;border:1px solid var(--line);border-radius:var(--r);
+  box-shadow:0 6px 18px rgba(27,34,43,.12);
+  padding:7px 10px;font-size:12px;white-space:nowrap;transform:translate(12px,-50%)}
+#tip.on{opacity:1}
+#tip b{font-weight:500}
+#tip em{font-style:normal;color:var(--tx-dim);font-size:11px;margin-left:7px}
+#tip .d{color:#A9620F;font-size:11px;margin-top:3px}
+
+.legend{position:absolute;left:26px;bottom:26px;z-index:3;display:flex;flex-wrap:wrap;
+  gap:8px 18px;font-size:11px;color:var(--tx-dim);max-width:calc(100% - 52px)}
+.legend i{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:6px;vertical-align:-1px}
+
+/* ---------- 侧栏 ---------- */
+/* 右侧抽屉：默认收起，选中城市后滑出 */
+#rail{position:absolute;top:0;right:0;bottom:0;width:368px;z-index:6;
+  background:var(--panel);border-left:1px solid var(--line);
+  display:flex;flex-direction:column;min-height:0;
+  transform:translateX(calc(100% + 40px));visibility:hidden;
+  box-shadow:-10px 0 34px rgba(27,34,43,.10);
+  transition:transform .3s cubic-bezier(.32,.72,0,1),visibility .3s}
+#rail.on{transform:none;visibility:visible}
+#app:has(#rail.on) #inset{right:394px}          /* 抽屉拉开时小图让位 */
+
+/* 工具栏让位只在宽屏成立：窄一点的屏上左栏 + 抽屉之后地图剩不下多少，
+   硬挤会把搜索框压成一条缝，不如整条收起，关掉抽屉自然回来 */
+@media(min-width:1100px){
+  #app:has(#rail.on) .tools{right:394px}
+}
+@media(min-width:761px) and (max-width:1099px){
+  #app:has(#rail.on) .tools{opacity:0;visibility:hidden;pointer-events:none;
+    transition:opacity .2s,visibility .2s}
+}
+.statcard{flex:none;border-top:1px solid var(--line)}
+.stats{display:grid;grid-template-columns:repeat(3,1fr)}
+.stat{padding:16px 6px 14px;text-align:center}
+.stat+.stat{border-left:1px solid var(--line)}
+.stat b{display:block;font-family:"IBM Plex Mono",monospace;font-size:23px;font-weight:500;color:var(--lit);
+  font-variant-numeric:tabular-nums;line-height:1}
+.stat span{display:block;margin-top:6px;font-size:10px;color:var(--tx-dim);letter-spacing:.16em}
+
+.bar{height:4px;background:#DDE3EA;position:relative}
+.bar i{position:absolute;inset:0 auto 0 0;background:linear-gradient(90deg,var(--lit-core),var(--lit));
+  transition:width .5s cubic-bezier(.4,0,.2,1)}
+
+/* ================= 人物筛选 ================= */
+.filter{display:flex;flex-wrap:wrap;gap:6px;padding:12px 18px 0}
+.fchip{display:inline-flex;align-items:center;gap:6px;padding:4px 10px 4px 4px;
+  border:1px solid var(--line);border-radius:99px;font-size:11.5px;color:var(--tx-mid);
+  background:var(--panel);transition:.15s;white-space:nowrap}
+.fchip:hover{border-color:var(--land-edge);color:var(--tx)}
+.fchip.on{font-weight:500;background:var(--paper)}
+.fchip.exact{padding:4px 10px;color:var(--tx-dim)}
+.fchip.exact.on{color:var(--lit);border-color:var(--lit);background:var(--lit-soft);font-weight:500}
+.fchip.clear{padding:4px 10px;color:var(--tx-dim)}
+.fchip.clear:hover{color:var(--warn);border-color:var(--warn)}
+.filter-note{margin:9px 18px 0;font-size:11px;color:var(--tx-dim);line-height:1.6}
+.filter-note b{color:var(--tx-mid);font-weight:500;font-family:"IBM Plex Mono",monospace}
+
+.tabs{display:flex;padding:6px 18px 0;border-bottom:1px solid var(--line);gap:22px;flex:none}
+.tabs button{padding:14px 0 12px;font-size:12.5px;color:var(--tx-dim);border-bottom:1.5px solid transparent;margin-bottom:-1px}
+.tabs button.on{color:var(--tx);border-color:var(--lit)}
+.pane{flex:1;overflow:auto;min-height:0}
+.pane[hidden]{display:none}
+
+/* 时间线 */
+.tl{padding:6px 18px 24px}
+.yr{display:flex;align-items:center;gap:10px;padding:16px 0 8px}
+.yr b{font-family:"IBM Plex Mono",monospace;font-size:12px;color:var(--tx-mid);letter-spacing:.1em}
+.yr hr{flex:1;border:none;border-top:1px solid var(--line);margin:0}
+.yr em{font-style:normal;font-size:10.5px;color:var(--tx-dim)}
+.rec{display:flex;gap:12px;padding:9px 10px;border-radius:var(--r);cursor:pointer;align-items:flex-start}
+.rec:hover{background:var(--paper)}
+.rec .dot{width:7px;height:7px;border-radius:50%;background:var(--lit);margin-top:6px;flex:none;
+  box-shadow:0 0 0 3px var(--lit-soft)}
+.rec h4{margin:0;font-size:13.5px;font-weight:400}
+.rec h4 small{color:var(--tx-dim);font-size:11px;margin-left:7px;font-weight:300}
+.rec p{margin:4px 0 0;font-size:11.5px;color:var(--tx-mid);line-height:1.55;font-weight:300}
+.rec time{font-size:11px;color:var(--tx-dim);margin-left:auto;flex:none;padding-top:3px}
+
+/* 省份覆盖 */
+.pv{padding:12px 18px 24px}
+.pvrow{padding:9px 0}
+.pvtop{display:flex;justify-content:space-between;font-size:12.5px;margin-bottom:6px}
+.pvtop span{color:var(--tx-mid)}
+.pvtop em{font-style:normal;font-size:11px;color:var(--tx-dim)}
+.pvbar{height:4px;border-radius:2px;background:var(--land);overflow:hidden}
+.pvbar i{display:block;height:100%;background:var(--lit);border-radius:2px}
+.pvrow.full .pvtop span{color:var(--lit);font-weight:500}
+
+.empty{padding:52px 26px;text-align:center;color:var(--tx-dim);font-size:12.5px;line-height:1.9}
+
+/* 编辑抽屉 */
+#sheet{background:var(--panel);padding:22px 20px;overflow:auto;flex:1;min-height:0}
+#sheet.on{display:block}
+.sh-top{display:flex;align-items:baseline;gap:9px;margin-bottom:2px}
+.sh-top h3{margin:0;font-family:"Noto Serif SC",serif;font-size:19px;font-weight:500}
+.sh-top em{font-style:normal;font-size:11px;color:var(--tx-dim);letter-spacing:.1em}
+.sh-top button{margin-left:auto;color:var(--tx-dim);font-size:17px;line-height:1;
+  width:28px;height:28px;border-radius:var(--r);display:flex;align-items:center;justify-content:center;
+  transition:.15s}
+.sh-top button:hover{color:var(--tx);background:var(--land)}
+label{display:block;font-size:10.5px;color:var(--tx-dim);letter-spacing:.16em;margin:15px 0 6px}
+/* 日期选择器 */
+.dp{border:1px solid var(--line);border-radius:6px;background:var(--paper);padding:11px 12px 12px}
+.dp-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:9px}
+.dp-title{font-size:13px;font-weight:500;letter-spacing:.05em;color:var(--tx);
+  padding:4px 9px;border-radius:var(--r);display:flex;align-items:center;gap:5px;
+  white-space:nowrap;transition:.15s}
+.dp-title:hover{background:var(--land)}
+.dp-title i{font-style:normal;font-size:9px;color:var(--tx-dim);transform:translateY(-1px)}
+.dp-head button{width:26px;height:26px;border-radius:var(--r);color:var(--tx-dim);
+  font-size:15px;line-height:1;display:flex;align-items:center;justify-content:center;transition:.15s}
+.dp-head button:hover{background:var(--land);color:var(--tx)}
+.dp-wk{display:grid;grid-template-columns:repeat(7,1fr);gap:2px;margin-bottom:5px}
+.dp-wk span{text-align:center;font-size:10px;color:var(--tx-dim);letter-spacing:.05em}
+.dp-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:2px}
+.dp-grid.cols3{grid-template-columns:repeat(3,1fr);gap:5px;padding:4px 0}
+.dp-grid button.wide{height:38px;font-size:12.5px}
+.dp-grid button{height:29px;border-radius:var(--r);font-family:"IBM Plex Mono",monospace;
+  font-size:12px;font-variant-numeric:tabular-nums;color:var(--tx);transition:background .12s,color .12s}
+.dp-grid button:hover{background:var(--land)}
+.dp-grid button.out{color:var(--tx-dim);opacity:.4}
+.dp-grid button.today{box-shadow:inset 0 0 0 1px var(--lit-core)}
+.dp-grid button.on{background:var(--lit);color:#fff;font-weight:500;box-shadow:none}
+.dp-grid button.on:hover{background:#B96D12}
+.dp-foot{display:flex;align-items:center;justify-content:space-between;
+  margin-top:11px;padding-top:10px;border-top:1px solid var(--line)}
+.dp-sel{font-size:12.5px;color:var(--tx-mid)}
+.chip{font-size:11.5px;color:var(--lit);padding:4px 11px;border-radius:99px;
+  border:1px solid var(--line);transition:.15s}
+.chip:hover{background:var(--lit-soft);border-color:var(--lit-soft)}
+
+#sheet input,#sheet textarea{width:100%;background:var(--paper);border:1px solid var(--line);
+  border-radius:var(--r);padding:9px 11px;font-size:13px;font-weight:300}
+#sheet textarea{resize:vertical;min-height:62px;line-height:1.65}
+#sheet input:focus,#sheet textarea:focus{border-color:var(--lit);outline:none}
+.acts{display:flex;gap:9px;margin-top:18px}
+.btn{flex:1;padding:10px;border-radius:var(--r);font-size:13px;text-align:center;transition:.15s}
+.btn-p{background:var(--lit);color:#FFFFFF;font-weight:500}
+.btn-p:hover{background:#B96D12}
+.btn-g{border:1px solid var(--line);color:var(--tx-mid)}
+.btn-g:hover{border-color:var(--tx-mid);color:var(--tx)}
+.btn-d{border:1px solid var(--line);color:var(--tx-mid);flex:0 0 auto;padding:10px 14px}
+.btn-d:hover{border-color:var(--warn);color:var(--warn)}
+
+/* 详情视图 */
+.pill{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:99px;
+  font-size:11px;letter-spacing:.08em;margin-top:10px}
+.pill.on{background:var(--lit-soft);color:#8A5310}
+.pill.off{background:var(--land);color:var(--tx-dim)}
+.pill i{width:6px;height:6px;border-radius:50%;background:currentColor}
+.kv{margin:16px 0 0;display:grid;grid-template-columns:auto 1fr;gap:10px 16px;font-size:12.5px}
+.kv dt{color:var(--tx-dim);font-size:11px;letter-spacing:.12em;padding-top:1px}
+.kv dd{margin:0;color:var(--tx);line-height:1.6}
+.kv dd.note{color:var(--tx-mid);font-weight:300}
+.kv dd.empty-v{color:var(--tx-dim);font-weight:300}
+.hint{margin:14px 0 0;font-size:11.5px;color:var(--tx-dim);line-height:1.7}
+.hint kbd{font-family:"IBM Plex Mono",monospace;font-size:11px;background:var(--land);
+  border-radius:3px;padding:1px 5px;color:var(--tx-mid)}
+
+::-webkit-scrollbar{width:9px;height:9px}
+::-webkit-scrollbar-thumb{background:#CFD6DE;border-radius:5px;border:2px solid var(--panel)}
+::-webkit-scrollbar-track{background:transparent}
+@media(prefers-reduced-motion:reduce){*{transition:none!important}}
+
+/* ================= 登录页 ================= */
+.auth{min-height:100dvh;display:grid;place-items:center;padding:32px 20px;
+  background:radial-gradient(120% 90% at 50% 0%, #FFFFFF 0%, #EFF2F6 80%)}
+.auth-card{width:100%;max-width:392px}
+.auth-brand{text-align:center;margin-bottom:28px}
+.auth-brand h1{font-family:"Noto Serif SC",serif;font-weight:700;font-size:27px;margin:0;letter-spacing:.2em}
+.auth-brand p{margin:8px 0 0;font-size:10.5px;color:var(--tx-dim);letter-spacing:.22em}
+.auth-box{background:var(--panel);border:1px solid var(--line);border-radius:8px;
+  padding:26px 24px;box-shadow:0 8px 30px rgba(27,34,43,.07)}
+.auth-box label{display:block;font-size:10.5px;color:var(--tx-dim);letter-spacing:.16em;margin:4px 0 6px}
+.auth-box label + input + label{margin-top:16px}
+.auth-box input{width:100%;background:var(--paper);border:1px solid var(--line);
+  border-radius:var(--r);padding:10px 12px;font-size:13.5px;font-weight:300}
+.auth-box input:focus{border-color:var(--lit);outline:none}
+.auth-err{margin:16px 0 0;padding:9px 12px;border-radius:var(--r);font-size:12.5px;
+  background:#FBEDE8;color:#9C3F1D;border:1px solid #F1D6CB}
+.auth-box .btn{width:100%;margin-top:20px;padding:11px}
+.auth-hint{margin:16px 0 0;text-align:center;font-size:11.5px;color:var(--tx-dim);line-height:1.9}
+.auth-hint code{font-family:"IBM Plex Mono",monospace;font-size:11px;background:var(--land);
+  border-radius:3px;padding:2px 6px;color:var(--tx-mid)}
+
+/* ================= 用户区 ================= */
+.me{margin-top:auto;border-top:1px solid var(--line);padding:14px 20px;
+  display:flex;align-items:center;gap:11px}
+.me-av{width:30px;height:30px;border-radius:50%;flex:none;display:grid;place-items:center;
+  background:var(--lit-soft);color:#8A5310;font-size:12.5px;font-weight:500}
+.me-id{min-width:0;flex:1}
+.me-id b{display:block;font-size:12.5px;font-weight:400;white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis}
+.me-id span{display:block;font-size:10.5px;color:var(--tx-dim);white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis}
+.me button{flex:none;font-size:11.5px;color:var(--tx-dim);padding:6px 10px;border-radius:var(--r);
+  border:1px solid var(--line);transition:.15s}
+.me button:hover{color:var(--warn);border-color:var(--warn)}
+.me button:disabled{opacity:.5;cursor:default}
+
+/* ================= 多次到访 ================= */
+.trips{margin:16px 0 0;display:flex;flex-direction:column;gap:8px}
+.trip{border:1px solid var(--line);border-radius:6px;padding:11px 12px;background:var(--paper)}
+.trip-top{display:flex;align-items:baseline;gap:9px;flex-wrap:wrap}
+.trip-top time{font-family:"IBM Plex Mono",monospace;font-size:12.5px;color:var(--tx);white-space:nowrap}
+.trip-top em{font-style:normal;font-size:11px;color:var(--tx-dim)}
+.trip-top .mini{margin-left:auto;display:flex;gap:2px;white-space:nowrap;flex:none}
+.mini button{font-size:11px;color:var(--tx-dim);padding:3px 7px;border-radius:3px;transition:.15s}
+.mini button:hover{background:var(--land);color:var(--tx)}
+.mini button.del:hover{color:var(--warn)}
+.mini button.danger{color:var(--warn);background:#FBEDE8}
+.mini button.danger:hover{background:#F6DED5}
+.confirm-q{font-style:normal;font-size:11px;color:var(--warn);margin-right:3px;align-self:center}
+
+.confirm{margin-top:14px;padding:13px 14px;border-radius:6px;
+  background:#FBEDE8;border:1px solid #F1D6CB}
+.confirm p{margin:0;font-size:12px;line-height:1.7;color:#8A3A1B;font-weight:300}
+.confirm p b{font-weight:500}
+.confirm .acts{margin-top:12px}
+.btn-danger{background:var(--warn);color:#fff;font-weight:500}
+.btn-danger:hover{background:#A8441F}
+.btn-danger:disabled{opacity:.6;cursor:default}
+.trip p{margin:6px 0 0;font-size:12px;color:var(--tx-mid);line-height:1.6;font-weight:300}
+.trip p.none{color:var(--tx-dim)}
+
+.loading{display:grid;place-items:center;height:100dvh;color:var(--tx-dim);font-size:13px}
+
+/* ================= 头像 ================= */
+.av{display:inline-flex;align-items:center;justify-content:center;flex:none;
+  border-radius:50%;color:#fff;font-weight:500;line-height:1;overflow:hidden;
+  object-fit:cover;background:var(--land)}
+.av-empty{background:var(--land);color:var(--tx-dim);
+  border:1px dashed var(--land-edge);font-weight:400}
+
+/* ================= 人物面板 ================= */
+.pp{padding:10px 18px 24px}
+.prow{display:flex;align-items:center;gap:11px;padding:9px 0}
+.prow + .prow{border-top:1px solid var(--line)}
+.prow-av{position:relative;flex:none;border-radius:50%;line-height:0}
+.prow-av i{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+  border-radius:50%;background:rgba(27,34,43,.62);color:#fff;font-style:normal;
+  font-size:10px;opacity:0;transition:opacity .15s}
+.prow-av:hover i{opacity:1}
+.prow-id{flex:1;min-width:0}
+.prow-id b{display:block;font-size:13px;font-weight:400;cursor:text}
+.prow-id b:hover{color:var(--lit)}
+.prow-id span{display:block;font-size:10.5px;color:var(--tx-dim);margin-top:2px}
+.prow-id input{width:100%;background:var(--paper);border:1px solid var(--lit);
+  border-radius:var(--r);padding:5px 8px;font-size:13px}
+
+.padd-btn{width:100%;margin-top:12px;padding:10px;border:1px dashed var(--land-edge);
+  border-radius:var(--r);font-size:12.5px;color:var(--tx-mid);transition:.15s}
+.padd-btn:hover{border-color:var(--lit);color:var(--lit)}
+.padd{margin-top:14px;padding:14px;border:1px solid var(--line);border-radius:6px;background:var(--paper)}
+.padd-top{display:flex;gap:13px;align-items:flex-end}
+.padd label{margin-top:0}
+.padd input[type=text],.padd input:not([type]){width:100%;background:#fff;
+  border:1px solid var(--line);border-radius:var(--r);padding:8px 10px;font-size:13px}
+.padd input:focus{border-color:var(--lit);outline:none}
+.padd-hint{margin:11px 0 0;font-size:11px;color:var(--tx-dim);line-height:1.7}
+.padd .acts{margin-top:13px}
+
+/* ================= 头像组 ================= */
+.avs{display:inline-flex;align-items:center;gap:8px;min-width:0}
+.avs-pile{display:inline-flex;flex:none}
+.avs-pile > *{margin-left:calc(var(--av-size) * -0.32);
+  box-shadow:0 0 0 2px var(--panel)}   /* 白描边把叠在一起的头像分开 */
+.avs-pile > *:first-child{margin-left:0}
+.avs-more{background:var(--land);color:var(--tx-mid);font-weight:500}
+.avs em{font-style:normal;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+.label-tip{margin-left:8px;padding:1px 6px;border-radius:99px;background:var(--land);
+  color:var(--tx-dim);font-size:9.5px;letter-spacing:.08em}
+
+/* ================= 身份色板 ================= */
+.swatches{display:flex;flex-wrap:wrap;gap:7px}
+.swatch{width:22px;height:22px;border-radius:50%;flex:none;position:relative;
+  box-shadow:0 0 0 1px rgba(27,34,43,.12) inset;transition:transform .12s}
+.swatch:hover{transform:scale(1.12)}
+.swatch.on{box-shadow:0 0 0 2px var(--panel), 0 0 0 4px currentColor}
+.swatch.on::after{content:'';position:absolute;inset:0;margin:auto;width:7px;height:7px;
+  border-radius:50%;background:#fff}
+.tint-row{padding:2px 0 12px 45px}
+
+/* ================= 到访里的人物 ================= */
+.trip-who{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;color:var(--tx-mid);
+  white-space:nowrap;max-width:12em;overflow:hidden;text-overflow:ellipsis}
+.trip .avs-pile > *{box-shadow:0 0 0 2px var(--paper)}
+#pyCap .avs-pile > *{box-shadow:0 0 0 2px #fff}
+.rec .av{margin-top:2px}
+
+.pick{display:flex;flex-wrap:wrap;gap:7px}
+.pick-one{display:inline-flex;align-items:center;gap:7px;padding:5px 11px 5px 5px;
+  border:1px solid var(--line);border-radius:99px;font-size:12.5px;color:var(--tx-mid);
+  background:var(--paper);transition:.15s}
+.pick-one:hover{border-color:var(--land-edge);color:var(--tx)}
+.pick-one.on{border-color:var(--lit);background:var(--lit-soft);color:#8A5310;font-weight:500}
+.pick-empty{margin:0;font-size:12px;color:var(--tx-dim);line-height:1.8}
+.pick-empty button{color:var(--lit);text-decoration:underline;text-underline-offset:2px}
+
+#pyCap .who{display:inline-flex;align-items:center;gap:6px;margin-left:9px;
+  font-size:11.5px;color:var(--tx-mid);vertical-align:2px}
+
+
+/* ======================================================================
+   移动端：竖屏堆叠。地图在上、列表在下，抽屉从底部升起。
+   ====================================================================== */
+@media (max-width: 760px) {
+  html, body { overflow-x: hidden; }
+
+  /* iOS Safari 会在聚焦 font-size < 16px 的输入框时自动放大整页，且不会缩回去。
+     把表单控件顶到 16px 是唯一可靠的规避办法。 */
+  input, textarea, select { font-size: 16px !important; }
+
+  /* 点按不要灰色高亮块，也不要 300ms 延迟 */
+  button, .rec, .prow, .city { -webkit-tap-highlight-color: transparent; }
+  button { touch-action: manipulation; }
+
+  #app {
+    grid-template-columns: 1fr;
+    grid-template-rows: 50fr 50fr;   /* 统计 + 筛选 + 标签页占掉不少，列表得留够 */
+    height: 100dvh;
+    overflow: hidden;
+    transition: grid-template-rows .32s cubic-bezier(.32, .72, 0, 1);
+  }
+  /* 收起：列表只留抓手那一条，地图占满 */
+  #app.panel-collapsed {
+    grid-template-rows: 1fr 46px;
+  }
+  #app.panel-collapsed #left { box-shadow: 0 -6px 20px rgba(27, 34, 43, .07); }
+
+  .left-handle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    flex: none;
+    height: 26px;
+    width: 100%;
+    padding: 0;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .left-handle i {
+    width: 38px; height: 4px;
+    border-radius: 2px;
+    background: var(--land-edge);
+    transition: background .15s;
+  }
+  .left-handle:hover i { background: var(--tx-dim); }
+  .left-handle em {
+    font-style: normal;
+    font-size: 11.5px;
+    color: var(--tx-dim);
+    letter-spacing: .04em;
+  }
+  /* 收起态把抓手这一条撑满 46px，点起来不费劲 */
+  #app.panel-collapsed .left-handle { height: 46px; }
+
+  #stage { grid-row: 1; }
+  #left {
+    grid-row: 2;
+    border-right: none;
+    border-top: 1px solid var(--line);
+    min-height: 0;
+  }
+
+  /* 竖屏寸土寸金，标题让位给内容 */
+  .brand { display: none; }
+  .statcard { border-top: none; }
+  .stat { padding: 10px 6px 8px; }
+  .stat b { font-size: 20px; }
+  .tabs { padding: 4px 14px 0; gap: 18px; }
+  .tabs button { padding: 11px 0 9px; }
+  .tl, .pv, .pp { padding-left: 14px; padding-right: 14px; }
+  .filter { padding: 9px 14px 0; }
+  .filter-note { margin: 7px 14px 0; font-size: 10.5px; }
+  .fchip { padding: 5px 11px 5px 5px; }      /* 点按区域大一点 */
+  .swatch { width: 30px; height: 30px; }     /* 22px 在手机上太小按不准 */
+  .swatches { gap: 9px; }
+  .tint-row { padding-left: 0; }
+
+  /* 2) 面板收起时把筛选条浮到地图底部——收起就是为了看地图，
+        而这时候最想调的恰恰是筛选，藏在收起的面板里就够不到了 */
+  #app.panel-collapsed .filter {
+    position: absolute;
+    left: calc(12px + env(safe-area-inset-left));
+    right: calc(12px + env(safe-area-inset-right));
+    bottom: 58px;
+    z-index: 4;
+    padding: 7px 9px;
+    justify-content: center;
+    background: rgba(255, 255, 255, .93);
+    backdrop-filter: blur(10px);
+    border: 1px solid var(--line);
+    border-radius: 99px;
+    box-shadow: 0 4px 18px rgba(27, 34, 43, .1);
+  }
+  #app.panel-collapsed .filter-note { display: none; }
+  /* 浮动筛选条本身就是色卡，图例再占一行会被压住 */
+  #app.panel-collapsed .legend { display: none; }
+  /* 回放时地图底部被时间轴占了，浮动筛选条让开 */
+  body.playing #app.panel-collapsed .filter { display: none; }
+  .me { padding: 10px 14px calc(10px + env(safe-area-inset-bottom)); }
+
+  /* 工具栏：占满一行，搜索框自适应 */
+  .tools {
+    left: calc(12px + env(safe-area-inset-left));
+    right: calc(12px + env(safe-area-inset-right));
+    top: calc(12px + env(safe-area-inset-top));
+    gap: 6px;
+  }
+  .search { flex: 1 1 auto; }
+  .zoom { display: none; }              /* 有捏合缩放就够了 */
+  .btn-play { padding: 8px 11px; font-size: 12px; }
+  .rsw-btn { padding: 8px 10px; font-size: 12px; }
+  .rsw-list button { padding: 10px 12px 10px 6px; }   /* 手机上点按区域大一点 */
+  #app:has(#rail.on) .tools { right: 12px; }
+
+  /* 南海诸岛小图在小屏上挤图例，收起来；三沙可以用搜索找到 */
+  #inset { display: none; }
+
+  .legend {
+    left: calc(12px + env(safe-area-inset-left));
+    right: calc(12px + env(safe-area-inset-right));
+    bottom: 12px; gap: 12px; font-size: 10.5px;
+  }
+  #tip { max-width: calc(100vw - 40px); white-space: normal; }
+  .legend .hide-sm { display: none; }
+
+  /* 抽屉改成从底部升起的面板 */
+  #rail {
+    top: auto;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: 100%;
+    max-height: 86dvh;
+    border-left: none;
+    border-top: 1px solid var(--line);
+    border-radius: 14px 14px 0 0;
+    transform: translateY(calc(100% + 20px));
+    box-shadow: 0 -8px 34px rgba(27, 34, 43, .14);
+  }
+  #rail.on { transform: none; }
+  #sheet { padding-bottom: calc(26px + env(safe-area-inset-bottom)); }
+  /* 顶部加一道抓手，暗示这是可关闭的浮层 */
+  #rail::before {
+    content: '';
+    position: absolute;
+    top: 8px; left: 50%;
+    width: 38px; height: 4px;
+    margin-left: -19px;
+    border-radius: 2px;
+    background: var(--land-edge);
+  }
+  #sheet { padding: 22px 16px 26px; }
+
+  /* 回放条：日期和计数换行排，轨道给足宽度 */
+  #play {
+    left: calc(12px + env(safe-area-inset-left));
+    right: calc(12px + env(safe-area-inset-right));
+    bottom: calc(12px + env(safe-area-inset-bottom));
+    gap: 12px; padding: 12px 14px;
+  }
+  #pyBtn { width: 34px; height: 34px; }
+  .py-top { flex-wrap: wrap; gap: 2px 10px; }
+  .py-top b { font-size: 13px; }
+  .py-ticks em { font-size: 8px; }
+  .py-exit { font-size: 11px; padding: 6px 8px; }
+  .py-speed { font-size: 11px; padding: 5px 7px; }
+  #pyCap { left: 12px; right: 12px; bottom: 104px; max-width: none; transform: none; }
+  #pyCap p { font-size: 12px; }
+  @keyframes capIn { from { opacity: 0; transform: translateY(8px) } to { opacity: 1; transform: none } }
+
+  /* 触摸目标放大一点 */
+  .dp-grid button { height: 34px; }
+  .dp-grid button.wide { height: 42px; }
+  .mini button { padding: 6px 9px; }
+  .pick-one { padding: 6px 12px 6px 6px; }
+}
+
+/* 触摸设备：双击不是自然手势，提示换个说法；悬浮提示也没有意义 */
+@media (hover: none) {
+  .legend .desktop-hint { display: none; }
+  #tip { display: none; }
+}
+@media (hover: hover) {
+  .legend .touch-hint { display: none; }
+}
+
+
+/* 横屏手机（矮而宽）：竖向堆叠会把地图压得没法看，改回左右分栏 */
+@media (max-width: 940px) and (max-height: 500px) and (orientation: landscape) {
+  #app {
+    grid-template-columns: 268px 1fr;
+    grid-template-rows: 1fr;
+  }
+  #stage { grid-row: 1; grid-column: 2; }
+  #left {
+    grid-row: 1; grid-column: 1;
+    border-top: none;
+    border-right: 1px solid var(--line);
+  }
+  .statcard { border-top: 1px solid var(--line); }
+  .stat { padding: 8px 4px 7px; }
+  .stat b { font-size: 17px; }
+  .stat span { font-size: 9px; margin-top: 3px; }
+  .tabs button { padding: 9px 0 7px; font-size: 12px; }
+
+  /* 抽屉回到右侧，底部升起会挡掉大半个屏 */
+  #rail {
+    top: 0; bottom: 0; left: auto; right: 0;
+    width: min(340px, 62vw);
+    max-height: none;
+    border-radius: 0;
+    border-top: none;
+    border-left: 1px solid var(--line);
+    transform: translateX(calc(100% + 20px));
+  }
+  #rail.on { transform: none; }
+  #rail::before { display: none; }
+  #pyCap { bottom: 92px; }
+  .left-handle { display: none; }
+  #app.panel-collapsed { grid-template-rows: 1fr; }
+
+  /* 竖屏那套 display:none 走的是 max-width:760，这里宽度到了 844 用不上，得单独收 */
+  .brand { display: none; }
+  #inset { display: none; }
+  .legend { bottom: 10px; font-size: 10px; }
+
+  /* 抽屉拉开后地图只剩两百来像素宽，工具栏必须能压缩：
+     左右都定位，搜索框自适应剩余空间，缩放按钮交给捏合手势 */
+  .tools { top: 10px; left: 10px; right: 10px; gap: 6px; }
+  #app:has(#rail.on) .tools { right: calc(min(340px, 62vw) + 12px); }
+  .search { flex: 1 1 auto; }
+  .zoom { display: none; }
+  .btn-play { padding: 7px 10px; font-size: 12px; flex: none; }
+
+  .me { padding: 8px 14px; }
+  .pane { min-height: 0; }
+}
+
+/* ================= 国家切换 ================= */
+/* 国家下拉：原生 select 在各系统上长相不一，自己画一个跟工具栏其它控件对齐的 */
+.rsw{position:relative;flex:none}
+.rsw-btn{display:inline-flex;align-items:center;gap:7px;padding:8px 11px 8px 13px;
+  font-size:12.5px;color:var(--tx);white-space:nowrap;
+  background:rgba(255,255,255,.9);backdrop-filter:blur(6px);
+  border:1px solid var(--line);border-radius:var(--r);
+  box-shadow:0 1px 3px rgba(27,34,43,.06);transition:.15s}
+.rsw-btn:hover{border-color:var(--land-edge)}
+.rsw-btn.open{border-color:var(--lit);background:#fff}
+.rsw-btn em{font-style:normal;font-size:10.5px;font-family:"IBM Plex Mono",monospace;
+  color:var(--tx-dim);font-variant-numeric:tabular-nums}
+/* 用 CSS 画的小三角，比字符 ▾ 在各字体下更稳 */
+.rsw-btn i{width:0;height:0;margin-left:1px;
+  border-left:3.5px solid transparent;border-right:3.5px solid transparent;
+  border-top:4px solid var(--tx-dim);transition:transform .18s}
+.rsw-btn.open i{transform:rotate(180deg)}
+
+.rsw-list{position:absolute;top:calc(100% + 6px);left:0;min-width:100%;z-index:9;
+  padding:4px;background:var(--panel);border:1px solid var(--line);border-radius:6px;
+  box-shadow:0 10px 28px rgba(27,34,43,.13);
+  animation:rswIn .14s cubic-bezier(.32,.72,0,1)}
+@keyframes rswIn{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
+.rsw-list button{display:flex;align-items:center;gap:7px;width:100%;
+  padding:7px 11px 7px 6px;border-radius:var(--r);
+  font-size:12.5px;color:var(--tx-mid);white-space:nowrap;text-align:left}
+.rsw-list button.active{background:var(--paper);color:var(--tx)}
+.rsw-list button.on{color:var(--tx);font-weight:500}
+.rsw-list button em{margin-left:auto;padding-left:14px;font-style:normal;font-size:10.5px;
+  font-family:"IBM Plex Mono",monospace;color:var(--tx-dim);font-variant-numeric:tabular-nums}
+.rsw-tick{width:12px;flex:none;color:var(--lit);font-size:11px;line-height:1}
+
+.map-loading{position:absolute;inset:0;display:grid;place-items:center;z-index:5;
+  background:rgba(247,248,250,.72);backdrop-filter:blur(2px);
+  color:var(--tx-dim);font-size:13px}

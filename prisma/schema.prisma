@@ -1,0 +1,69 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  displayName  String
+  createdAt    DateTime @default(now())
+
+  visits  Visit[]
+  persons Person[]
+}
+
+/// 人物：足迹记在谁头上。头像可以不传，前端用姓名首字生成默认头像。
+model Person {
+  id     String @id @default(cuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  name String
+  /// 头像原图字节，客户端已压到 256px 以内；为空则用文字头像
+  avatarData Bytes?
+  avatarMime String?
+  /// 文字头像的底色，创建时按姓名生成，之后不再变
+  color String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  visits Visit[] @relation("VisitPerson")
+
+  @@unique([userId, name])
+  @@index([userId])
+}
+
+/// 一次到访。同一座城市可以有多条记录（多次到访）。
+model Visit {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// 国家/地区：'CN' 中国 · 'JP' 日本。决定这条记录画在哪张图上
+  country   String   @default("CN")
+  /// 地图单元代码。中国是 6 位行政区划码（530100 昆明市），日本是都道府県码（13 东京都）
+  adcode    Int
+  /// 冗余存名称，避免每次查询都要对照地图数据
+  cityName  String
+  province  String
+
+  /// 这次到访有谁参与，可以是多个人
+  persons Person[] @relation("VisitPerson")
+
+  /// 抵达日期，只用到日期部分
+  visitedOn DateTime @db.Date
+  note      String   @default("")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, visitedOn])
+  @@index([userId, country, adcode])
+}

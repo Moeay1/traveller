@@ -1,0 +1,16 @@
+node_modules/
+.next/
+out/
+.env
+.env.local
+*.log
+.DS_Store
+next-env.d.ts
+/prototype/
+.playwright-mcp/
+tsconfig.tsbuildinfo
+backups/
+
+# Claude Code 本地状态
+.claude/.cc-writes/
+.claude/settings.local.json

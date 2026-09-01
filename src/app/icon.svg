@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="旅痕">
+  <!-- 深墨底：浅色和深色标签栏里都立得住 -->
+  <rect width="64" height="64" rx="14" fill="#12181F"/>
+
+  <!-- 还没去过的城：暗灰，小尺寸下只是底噪 -->
+  <circle cx="45" cy="20" r="3.4" fill="#33404F"/>
+  <circle cx="47.5" cy="43" r="2.8" fill="#2C3846"/>
+  <circle cx="17" cy="45" r="2.6" fill="#2C3846"/>
+
+  <!-- 点亮的那座：琥珀实心 + 一圈涟漪，跟地图上的点亮动效同一个语言 -->
+  <circle cx="27" cy="31" r="15" fill="none" stroke="#E0921F" stroke-opacity=".5" stroke-width="3.2"/>
+  <circle cx="27" cy="31" r="8.6" fill="#EFA43C"/>
+</svg>
