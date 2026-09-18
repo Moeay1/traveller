@@ -11,6 +11,7 @@ import Playback, { PingEvent } from './Playback'
 import Sidebar, { Tab } from './Sidebar'
 import { MapData } from '@/lib/mapdata'
 import { cityCodeOf, visitStats, VisitDTO } from '@/lib/visit'
+import { loadShardIndex } from '@/lib/countyshards'
 import { PersonDTO, UNASSIGNED_COLOR } from '@/lib/person'
 import { DEFAULT_REGION, REGIONS, RegionCode, regionOf } from '@/lib/regions'
 import { stamp } from '@/lib/date'
@@ -93,14 +94,12 @@ export default function MapApp({ user, initialRegion }: { user: User; initialReg
         .then((r) => r.json())
         .then((list: CountyName[]) => alive && setCountyNames(list))
         .catch(() => {}) // 取不到就退化成只搜市，不打扰用户
-      // 索引很小（10KB），顺手拿来做下钻入口的判断和进度分母
-      fetch(drill.index)
-        .then((r) => r.json())
-        .then((idx: { shards: Record<string, { n: number }> }) => {
-          if (!alive) return
-          setCountyCounts(new Map(Object.entries(idx.shards).map(([k, v]) => [Number(k), v.n])))
-        })
-        .catch(() => {})
+      // 索引很小（10KB），拿来做下钻入口的判断和进度分母。
+      // 走 loadShardIndex 而不是直接 fetch —— 地图那边也要这份索引，共用一次请求
+      loadShardIndex(drill.index).then((idx) => {
+        if (!alive || !idx) return
+        setCountyCounts(new Map(Object.entries(idx.shards).map(([k, v]) => [Number(k), v.n])))
+      })
     }
     const idle = (window as unknown as {
       requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number
@@ -287,6 +286,16 @@ export default function MapApp({ user, initialRegion }: { user: User; initialReg
     const litSet = new Set(shownVisits.map((v) => cityCodeOf(v)))
     return [cities.filter((u) => litSet.has(u.a)).length, cities.length]
   }, [data, byCode, drawerTarget, shownVisits, countyTotal, countyCounts])
+
+  /**
+   * 选中一座城就预取它的区县分片。用户读抽屉的那几秒正好覆盖掉那次冷请求，
+   * 等他点「看这座城的区县」时分片已经在手里，下钻是瞬间的。
+   */
+  useEffect(() => {
+    if (selected === null || !conf.drill) return
+    const id = setTimeout(() => mapRef.current?.prefetch(selected), 120)
+    return () => clearTimeout(id)
+  }, [selected, conf])
 
   /* ---------- 交互 ---------- */
   /**

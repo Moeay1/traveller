@@ -253,6 +253,8 @@ body.playing #inset,body.playing .legend{opacity:0;pointer-events:none;transitio
   transition:transform .3s cubic-bezier(.32,.72,0,1),visibility .3s}
 #rail.on{transform:none;visibility:visible}
 #app:has(#rail.on) #inset{right:394px}          /* 抽屉拉开时小图让位 */
+/* 面包屑最长会到「中国 › 内蒙古 › 呼伦贝尔市」，抽屉拉开后要收窄，否则被压住 */
+#app:has(#rail.on) #crumb{max-width:calc(100% - 420px)}
 
 /* 工具栏让位只在宽屏成立：窄一点的屏上左栏 + 抽屉之后地图剩不下多少，
    硬挤会把搜索框压成一条缝，不如整条收起，关掉抽屉自然回来 */
@@ -541,6 +543,35 @@ label{display:block;font-size:10.5px;color:var(--tx-dim);letter-spacing:.16em;ma
    ====================================================================== */
 @media (max-width: 760px) {
   html, body { overflow-x: hidden; }
+
+  /* ---- 区县层在窄屏上的适配 ---- */
+  /* 面包屑要跟缩放工具错开，并且留出刘海安全区 */
+  #crumb {
+    top: calc(10px + env(safe-area-inset-top));
+    left: calc(10px + env(safe-area-inset-left));
+    max-width: calc(100% - 150px);
+    padding: 4px 6px;
+    font-size: 11.5px;
+  }
+  #crumb button { padding: 2px 4px; }
+
+  /* 三态图例竖排太占高，横过来贴在人物图例上方 */
+  #ctyLegend {
+    left: calc(10px + env(safe-area-inset-left));
+    bottom: 52px;
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 4px 12px;
+    max-width: calc(100% - 20px);
+    padding: 6px 9px;
+    font-size: 10.5px;
+  }
+
+  /* 下钻按钮是触屏上的主要入口，给足点击高度 */
+  .btn-drill { padding: 13px 12px; font-size: 13.5px; }
+
+  /* 区县标签在小屏上密度更高，缩一档免得糊成一片 */
+  #countyLbl .lbl { font-size: calc(var(--k, 1) * 7.5px); }
 
   /* iOS Safari 会在聚焦 font-size < 16px 的输入框时自动放大整页，且不会缩回去。
      把表单控件顶到 16px 是唯一可靠的规避办法。 */
