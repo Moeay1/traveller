@@ -136,6 +136,34 @@ def test_shard_shape_is_minimal():
     assert shard['u'][0]['g'] == [[0.0, 0.0, 1.0, 0.0, 1.0, 1.0]]
     assert shard['u'][0]['c'] == [1.0, 2.0]
 
+def test_align_delta_ignores_extra_islands_but_catches_offset():
+    """
+    区县层容差更细，会保留市界抽稀时丢掉的小岛（舟山：市界 20 环 → 区县 71 环，
+    面积多 25%）。这种「区县包围盒更大」是正常的，不该判成没对齐。
+    真正的问题是市界探出区县包围盒 —— 那说明变换套错了。
+    """
+    bc = _load_bc()
+    city = (10.0, 10.0, 20.0, 20.0)
+    assert bc.align_delta(city, (8.0, 8.0, 22.0, 22.0)) == 0.0     # 区县更大：正常
+    assert bc.align_delta(city, city) == 0.0                        # 完全重合
+    assert abs(bc.align_delta(city, (10.5, 10.0, 20.0, 20.0)) - 0.5) < 1e-12   # 左边探出
+    assert abs(bc.align_delta(city, (10.0, 10.0, 19.2, 20.0)) - 0.8) < 1e-12   # 右边探出
+    assert abs(bc.align_delta(city, (13.0, 10.0, 20.0, 20.0)) - 3.0) < 1e-12   # 整体偏移
+
+def test_names_from_shards_carries_parent():
+    """区县重名很多，名录必须带父级市码，搜索结果才能消歧"""
+    bc = _load_bc()
+    shards = {
+        530100: {'p': 530100, 'u': [{'n': '城关区', 'a': 530102, 'c': [1, 2], 'g': []}]},
+        520500: {'p': 520500, 'u': [{'n': '城关区', 'a': 520502, 'c': [3, 4], 'g': []}]},
+    }
+    names = bc.names_from_shards(shards)
+    assert len(names) == 2
+    assert {n['p'] for n in names} == {530100, 520500}
+    assert all(set(n.keys()) == {'a', 'n', 'p'} for n in names)
+    # 按 adcode 排序，输出稳定，diff 才有意义
+    assert [n['a'] for n in names] == sorted(n['a'] for n in names)
+
 if __name__ == '__main__':
     fns = [v for k, v in sorted(globals().items()) if k.startswith('test_')]
     for fn in fns:

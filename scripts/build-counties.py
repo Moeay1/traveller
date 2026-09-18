@@ -39,6 +39,7 @@ SKIP = {460300, 810000, 820000, 710000}
 FIT_PROV, HOLDOUT_PROV = 530000, 510000
 
 RESIDUAL_LIMIT = 0.06  # cn.json 坐标 1 位小数，量化上界 ±0.05
+ALIGN_LIMIT = 0.6      # 市界探出区县包围盒的容忍量，见 align_delta
 
 def load_cn():
     with open(CN_JSON) as f:
@@ -181,6 +182,28 @@ def city_area_of(unit):
         total += ring_area([(r[i], r[i + 1]) for i in range(0, len(r), 2)])
     return total
 
+def flat_bbox(flat_rings):
+    """一组扁平坐标环的整体包围盒"""
+    xs = [r[i] for r in flat_rings for i in range(0, len(r), 2)]
+    ys = [r[i] for r in flat_rings for i in range(1, len(r), 2)]
+    return min(xs), min(ys), max(xs), max(ys)
+
+def align_delta(city_bbox, cty_bbox):
+    """
+    市界包围盒超出区县包围盒的最大量 —— 两层是否在同一坐标空间的判据。
+
+    不要用面积比。区县层容差 0.00012 比市层的 0.00035 细得多，会保留
+    市界抽稀时丢掉的小岛：舟山市界 20 个环，区县 71 个环，面积因此多出 25%，
+    而两层其实严丝合缝。乌海这种小市反过来，纯抽稀差异就有 3%。
+    面积比量的是「细节多少」，不是「有没有对齐」。
+
+    所以只查一个方向：区县包围盒可以向外扩（多出来的岛），
+    但市界不该探出区县包围盒之外 —— 那才说明套错了变换。
+    """
+    cx0, cy0, cx1, cy1 = city_bbox
+    tx0, ty0, tx1, ty1 = cty_bbox
+    return max(0.0, tx0 - cx0, ty0 - cy0, cx1 - tx1, cy1 - ty1)
+
 def make_shard(parent, counties):
     """counties: [{'n','a','c','rings'}]，rings 是已套过仿射的点列"""
     return {
@@ -193,7 +216,7 @@ def make_shard(parent, counties):
         } for c in counties],
     }
 
-def build_one(code, name, proj, s, a, b, city_area):
+def build_one(code, name, proj, s, a, b, city_area, city_bbox):
     if code in SKIP:
         return None
     try:
@@ -238,10 +261,48 @@ def build_one(code, name, proj, s, a, b, city_area):
 
     area = sum(ring_area(r) for c in counties for r in c['rings'])
     cover = area / city_area if city_area else 0.0
-    flag = '' if abs(cover - 1) < 0.01 else '  ⚠ 面积对不上'
+    delta = align_delta(city_bbox, flat_bbox([r for u in shard['u'] for r in u['g']]))
+    flag = '' if delta <= ALIGN_LIMIT else '  ⚠ 没对齐'
     print(f'  {code} {name:<12} {len(counties):>3} 个区县  {pts:>6} 点  '
-          f'{size / 1024:>6.1f} KB  覆盖 {cover * 100:>6.2f}%{flag}')
-    return {'n': len(counties), 'size': size, 'pts': pts, 'cover': cover}
+          f'{size / 1024:>6.1f} KB  对齐 {delta:>5.2f}  细节比 {cover * 100:>6.1f}%{flag}')
+    return {'n': len(counties), 'size': size, 'pts': pts,
+            'cover': cover, 'delta': delta}
+
+def names_from_shards(shards):
+    """无几何名录，按 adcode 排序保证输出稳定"""
+    out = [{'a': u['a'], 'n': u['n'], 'p': sh['p']}
+           for sh in shards.values() for u in sh['u']]
+    out.sort(key=lambda x: x['a'])
+    return out
+
+def write_index(stats, skipped):
+    idx = {
+        'src': SRC_LABEL,
+        'fetchedOn': datetime.date.today().isoformat(),
+        'eps': COUNTY_EPS,
+        'skipped': sorted(skipped),
+        'shards': {str(k): {'n': v['n'], 'size': v['size']}
+                   for k, v in sorted(stats.items())},
+    }
+    path = os.path.join(OUT_DIR, 'index.json')
+    with open(path, 'w') as f:
+        json.dump(idx, f, ensure_ascii=False, separators=(',', ':'))
+    print(f'  index.json  {len(idx["shards"])} 片  {os.path.getsize(path) / 1024:.1f} KB')
+    return idx
+
+def write_names():
+    shards = {}
+    for fn in sorted(os.listdir(OUT_DIR)):
+        if not fn.endswith('.json') or fn in ('index.json', 'names.json'):
+            continue
+        with open(os.path.join(OUT_DIR, fn)) as f:
+            sh = json.load(f)
+        shards[sh['p']] = sh
+    names = names_from_shards(shards)
+    path = os.path.join(OUT_DIR, 'names.json')
+    with open(path, 'w') as f:
+        json.dump(names, f, ensure_ascii=False, separators=(',', ':'))
+    print(f'  names.json  {len(names)} 个区县  {os.path.getsize(path) / 1024:.1f} KB')
 
 PILOT = [530100, 310000, 440300, 150700, 540600]   # 面积悬殊，用来压体积上限
 
@@ -250,16 +311,16 @@ def build(codes):
     proj, _ = make_proj(**PROJ_ARGS)
     s, a, b = load_transform()
     by_code = {u['a']: u for u in cn['u']}
-    stats, worst_cover = {}, 0.0
+    stats, worst_delta = {}, 0.0
     for code in codes:
         u = by_code.get(code)
         if not u:
             print(f'  ✗ {code} 不在 cn.json 里')
             continue
-        r = build_one(code, u['n'], proj, s, a, b, city_area_of(u))
+        r = build_one(code, u['n'], proj, s, a, b, city_area_of(u), flat_bbox(u['g']))
         if r:
             stats[code] = r
-            worst_cover = max(worst_cover, abs(r['cover'] - 1))
+            worst_delta = max(worst_delta, r['delta'])
     if not stats:
         sys.exit('✗ 一片都没生成')
     sizes = sorted(v['size'] for v in stats.values())
@@ -267,11 +328,13 @@ def build(codes):
     mid = sizes[len(sizes) // 2]
     print(f'\n共 {len(stats)} 片 · 合计 {total / 1024 / 1024:.2f} MB · '
           f'中位 {mid / 1024:.1f} KB · 最大 {sizes[-1] / 1024:.1f} KB · '
-          f'面积最大偏差 {worst_cover * 100:.2f}%')
+          f'对齐最大偏差 {worst_delta:.2f}')
     if sizes[-1] > 40 * 1024:
         print(f'⚠ 最大分片超过 40KB，考虑调大 COUNTY_EPS（现在 {COUNTY_EPS}）')
-    if worst_cover >= 0.01:
-        print('⚠ 有市的区县面积和市界对不上超过 1%，几何没对齐，先查标定')
+    if worst_delta > ALIGN_LIMIT:
+        bad = sorted((v['delta'], k) for k, v in stats.items() if v['delta'] > ALIGN_LIMIT)
+        print(f'⚠ {len(bad)} 个市的市界探出了区县包围盒，几何没对齐，先查标定：'
+              + ' '.join(f'{c}({d:.2f})' for d, c in reversed(bad[-8:])))
     return stats
 
 if __name__ == '__main__':
@@ -280,6 +343,14 @@ if __name__ == '__main__':
         calibrate()
     elif cmd == 'build':
         args = sys.argv[2:]
-        build(PILOT if not args else [int(x) for x in args])
+        if args == ['--all']:
+            codes = [u['a'] for u in load_cn()['u']]
+            stats = build(codes)
+            skipped = [c for c in codes if c not in stats]
+            write_index(stats, skipped)
+            write_names()
+            print(f'  跳过 {len(skipped)} 个：{sorted(skipped)}')
+        else:
+            build(PILOT if not args else [int(x) for x in args])
     else:
         sys.exit(f'未知命令 {cmd}')

@@ -7,7 +7,7 @@ build-map.py（整包地图）和 build-counties.py（区县分片）都用这�
 """
 import json, math, os, time, urllib.error, urllib.request
 
-FETCH_RETRIES = 4
+FETCH_RETRIES = 6
 
 # ---------------------------------------------------------------- 几何
 
