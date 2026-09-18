@@ -13,7 +13,11 @@
     "postinstall": "prisma generate",
     "db:seed": "node --env-file=.env prisma/seed.mjs",
     "db:backup": "node --env-file=.env scripts/backup.mjs",
-    "db:restore": "node --env-file=.env scripts/restore.mjs"
+    "db:restore": "node --env-file=.env scripts/restore.mjs",
+    "map:test": "python3 scripts/test_mapkit.py",
+    "map:calibrate": "python3 scripts/build-counties.py calibrate",
+    "map:verify": "python3 scripts/verify_transform.py",
+    "map:counties": "python3 scripts/build-counties.py build --all"
   },
   "dependencies": {
     "@prisma/client": "^6.1.0",
