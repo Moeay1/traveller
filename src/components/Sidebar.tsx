@@ -6,7 +6,7 @@ import Avatar from './Avatar'
 import AvatarStack from './AvatarStack'
 import PersonPanel from './PersonPanel'
 import { MapData } from '@/lib/mapdata'
-import { VisitDTO } from '@/lib/visit'
+import { cityCodeOf, visitStats, VisitDTO } from '@/lib/visit'
 import { PersonDTO } from '@/lib/person'
 import { Region } from '@/lib/regions'
 
@@ -59,7 +59,9 @@ export default function Sidebar({
   const [signingOut, setSigningOut] = useState(false)
   const router = useRouter()
 
-  const litCities = useMemo(() => new Set(visits.map((v) => v.adcode)), [visits])
+  // 折叠到市这一层：一条区县记录点亮的是它所属的市
+  const litCities = useMemo(() => new Set(visits.map((v) => cityCodeOf(v))), [visits])
+  const stats = useMemo(() => visitStats(visits), [visits])
   const litProvinces = useMemo(() => new Set(visits.map((v) => v.province)), [visits])
   const total = data.u.length
   const pct = (litCities.size / total) * 100
@@ -139,6 +141,21 @@ export default function Sidebar({
         <div className="bar">
           <i style={{ width: `${pct}%` }} />
         </div>
+        {/* 区县这一层只有中国有，没有 drill 配置的国家不显示 */}
+        {conf.drill && (stats.counties > 0 || stats.cityOnly > 0) && (
+          <p className="substat">
+            {stats.counties > 0 && (
+              <span>
+                已记 <b className="mono">{stats.counties}</b> 个区县
+              </span>
+            )}
+            {stats.cityOnly > 0 && (
+              <span className="todo">
+                <b className="mono">{stats.cityOnly}</b> 座城只记到市
+              </span>
+            )}
+          </p>
+        )}
       </div>
 
       {persons.length > 0 && (

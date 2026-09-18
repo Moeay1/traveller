@@ -105,6 +105,25 @@ input,textarea{font:inherit;color:inherit}
 .zoom button:hover{background:var(--paper);color:var(--tx)}
 .zoom button+button{border-left:1px solid var(--line)}
 
+/* ---------- 区县带来的新状态 ---------- */
+/* 「市级记录覆盖」：既不是已点亮也不是未抵达，跟斜纹是同一件事的两种呈现 */
+.pill.part{background:var(--lit-soft);color:#8A5310}
+.pill.part i{background:var(--lit)}
+.lvl-tag{display:inline-block;margin-left:8px;font-size:9.5px;letter-spacing:.14em;
+  padding:2px 6px;border-radius:2px;background:var(--paper);color:var(--tx-mid);
+  border:1px solid var(--line);vertical-align:2px}
+
+/* 搜索建议里区县条目的层级标记，跟同名的市区分开 */
+.sug-lvl{font-style:normal;font-size:9px;letter-spacing:.1em;margin-left:6px;
+  padding:1px 4px;border-radius:2px;background:var(--lit-soft);color:#8A5310}
+
+/* 侧栏统计条下面的副行：已记区县数 + 待细化的城数 */
+.substat{margin:10px 0 0;display:flex;flex-wrap:wrap;gap:4px 14px;
+  font-size:11px;color:var(--tx-mid)}
+.substat b{font-weight:500;color:var(--tx)}
+.substat .todo{color:var(--lit)}
+.substat .todo b{color:var(--lit)}
+
 /* ---------- 面包屑 ---------- */
 #crumb{position:absolute;top:26px;left:26px;z-index:4;display:flex;align-items:center;gap:2px;
   padding:5px 8px;background:rgba(255,255,255,.92);backdrop-filter:blur(6px);

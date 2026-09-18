@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import AvatarStack from './AvatarStack'
-import { VisitDTO } from '@/lib/visit'
+import { cityCodeOf, VisitDTO } from '@/lib/visit'
 import { UNASSIGNED_COLOR } from '@/lib/person'
 import { formatStamp, stamp } from '@/lib/date'
 
@@ -12,7 +12,15 @@ const STEP_MS = 1000
 /** 倍速档位：数字越大走得越快 */
 const SPEEDS = [0.5, 1, 2] as const
 
-export type PingEvent = { adcode: number; key: string; repeat: boolean; colors: string[] }
+export type PingEvent = {
+  /** 市这一层的 adcode —— 区县记录已经折叠上来了，见 cityCodeOf */
+  adcode: number
+  /** 区县级记录才有：区县自己的 adcode。下钻状态下涟漪画在它上面 */
+  countyAdcode: number | null
+  key: string
+  repeat: boolean
+  colors: string[]
+}
 
 type Props = {
   visits: VisitDTO[]
@@ -41,8 +49,9 @@ export default function Playback({ visits, onCutoff, onPing, onExit }: Props) {
     const sorted = [...visits].sort((a, b) => a.visitedOn.localeCompare(b.visitedOn))
     const seen = new Map<number, number>()
     return sorted.map((v) => {
-      const nth = (seen.get(v.adcode) ?? 0) + 1
-      seen.set(v.adcode, nth)
+      const code = cityCodeOf(v)
+      const nth = (seen.get(code) ?? 0) + 1
+      seen.set(code, nth)
       return { ...v, nth, repeat: nth > 1 }
     })
   }, [visits])
@@ -55,7 +64,7 @@ export default function Playback({ visits, onCutoff, onPing, onExit }: Props) {
   const cutoff = t0 + f * (t1 - t0)
   const shown = events.filter((v) => stamp(v.visitedOn) <= cutoff)
   const latest = shown[shown.length - 1]
-  const cityCount = new Set(shown.map((v) => v.adcode)).size
+  const cityCount = new Set(shown.map((v) => cityCodeOf(v))).size
 
   useEffect(() => {
     onCutoff(cutoff)
@@ -65,7 +74,8 @@ export default function Playback({ visits, onCutoff, onPing, onExit }: Props) {
   useEffect(() => {
     if (seenCount.current >= 0 && shown.length > seenCount.current && latest) {
       onPing({
-        adcode: latest.adcode,
+        adcode: cityCodeOf(latest),
+        countyAdcode: latest.level === 'county' ? latest.adcode : null,
         key: latest.id,
         repeat: latest.repeat,
         colors: latest.persons.length ? latest.persons.map((p) => p.color) : [UNASSIGNED_COLOR],

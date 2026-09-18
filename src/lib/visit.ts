@@ -44,3 +44,33 @@ export function serializeVisit(v: Visit & { persons?: Person[] }): VisitDTO {
 export function cityCodeOf(v: Pick<VisitDTO, 'adcode' | 'level' | 'parentAdcode'>): number {
   return v.level === 'county' && v.parentAdcode !== null ? v.parentAdcode : v.adcode
 }
+
+/**
+ * 侧栏的统计口径。
+ *
+ * `cityOnly` 是「有市级记录、但名下一个区县都没记」的城数 —— 待细化的提示就用它。
+ * 注意它不等于「没有区县记录的城」：只有区县记录、没有市级记录的城（比如从一开始
+ * 就记在区县上的）已经细化过了，不该催。
+ */
+export function visitStats(visits: readonly Pick<VisitDTO, 'adcode' | 'level' | 'parentAdcode'>[]): {
+  cities: number
+  counties: number
+  cityOnly: number
+} {
+  const cities = new Set<number>()
+  const counties = new Set<number>()
+  const withCityLevel = new Set<number>()
+  const withCountyLevel = new Set<number>()
+  for (const v of visits) {
+    cities.add(cityCodeOf(v))
+    if (v.level === 'county') {
+      counties.add(v.adcode)
+      withCountyLevel.add(cityCodeOf(v))
+    } else {
+      withCityLevel.add(v.adcode)
+    }
+  }
+  let cityOnly = 0
+  for (const a of withCityLevel) if (!withCountyLevel.has(a)) cityOnly++
+  return { cities: cities.size, counties: counties.size, cityOnly }
+}

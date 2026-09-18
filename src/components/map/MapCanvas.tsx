@@ -54,10 +54,22 @@ type Props = {
   countySel: CountySel
   /** 回放中：屏蔽选中交互 */
   frozen?: boolean
-  ping?: { adcode: number; key: string; repeat: boolean; colors: string[] } | null
+  ping?: {
+    adcode: number
+    countyAdcode: number | null
+    key: string
+    repeat: boolean
+    colors: string[]
+  } | null
   onPick: (adcode: number) => void
   onPickDouble: (adcode: number) => void
-  onPickCounty: (sel: { adcode: number; parent: number; name: string }) => void
+  onPickCounty: (sel: {
+    adcode: number
+    parent: number
+    name: string
+    /** 该市一共有几个区县，抽屉里「本市区县进度 x/y」的分母 */
+    siblingCount: number
+  }) => void
 }
 
 export type MapHandle = {
@@ -70,6 +82,9 @@ export type MapHandle = {
 }
 
 const DRAG_MIN = 4
+/** 涟漪基准半径（屏幕 px）。乘 k 转成用户坐标，放大后不跟着涨；
+    动画本身是 CSS 的 transform:scale，跟这个值无关 */
+const PING_R = 10
 
 /** 命中的是哪一层。用 kind 做判别标签，不要靠 `'county' in hit` */
 type Hit =
@@ -470,8 +485,16 @@ const MapCanvas = forwardRef<MapHandle, Props>(function MapCanvas(
     clickTimer.current = setTimeout(() => {
       // 层级过了半程，点击落到区县；否则还是选市
       if (hit.kind === 'county' && t >= 0.5) {
-        const u = store?.get(hit.parent)?.units.find((x) => x.a === hit.adcode)
-        if (u) onPickCounty({ adcode: hit.adcode, parent: hit.parent, name: u.n })
+        const shard = store?.get(hit.parent)
+        const u = shard?.units.find((x) => x.a === hit.adcode)
+        if (u) {
+          onPickCounty({
+            adcode: hit.adcode,
+            parent: hit.parent,
+            name: u.n,
+            siblingCount: shard!.units.length,
+          })
+        }
       } else {
         onPick(hit.kind === 'county' ? hit.parent : hit.adcode)
       }
@@ -498,6 +521,22 @@ const MapCanvas = forwardRef<MapHandle, Props>(function MapCanvas(
   }
 
   useEffect(() => () => { if (clickTimer.current) clearTimeout(clickTimer.current) }, [])
+
+  /**
+   * 涟漪画在哪：下钻到位、分片已加载、且这条是区县级记录时画在区县锚点上，
+   * 否则落回市锚点。回放里区县记录的 adcode 已经折叠成市码了，所以市锚点总能取到 ——
+   * 不折叠的话 byCode.get(区县码) 是 undefined，那条记录回放时一点涟漪都没有。
+   */
+  const pingAt = useMemo((): [number, number] | null => {
+    if (!ping) return null
+    if (ping.countyAdcode !== null && t > 0.5) {
+      const u = store?.get(ping.adcode)?.units.find((x) => x.a === ping.countyAdcode)
+      if (u) return [u.c[0], u.c[1]]
+    }
+    const city = byCode.get(ping.adcode)
+    return city ? [city.c[0], city.c[1]] : null
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ping, t, byCode, store, shardTick])
 
   /* ---------- 面包屑 ---------- */
   const crumbs: Crumb[] = useMemo(() => {
@@ -635,23 +674,17 @@ const MapCanvas = forwardRef<MapHandle, Props>(function MapCanvas(
         <CityLabelLayer paths={paths} lit={lit} />
 
         <g id="fxLayer">
-          {ping && byCode.get(ping.adcode) && (
-            <g key={ping.key}>
-              <circle
-                cx={byCode.get(ping.adcode)!.c[0]}
-                cy={byCode.get(ping.adcode)!.c[1]}
-                r={9}
-                className="ping"
-                stroke={ping.colors[0]}
-              />
+          {pingAt && (
+            <g key={ping!.key}>
+              <circle cx={pingAt[0]} cy={pingAt[1]} r={PING_R * k} className="ping" stroke={ping!.colors[0]} />
               {/* 重复到访：补一圈延迟出发的涟漪，跟第一次去区分开 */}
-              {ping.repeat && (
+              {ping!.repeat && (
                 <circle
-                  cx={byCode.get(ping.adcode)!.c[0]}
-                  cy={byCode.get(ping.adcode)!.c[1]}
-                  r={9}
+                  cx={pingAt[0]}
+                  cy={pingAt[1]}
+                  r={PING_R * k}
                   className="ping delay"
-                  stroke={ping.colors[ping.colors.length - 1]}
+                  stroke={ping!.colors[ping!.colors.length - 1]}
                 />
               )}
             </g>

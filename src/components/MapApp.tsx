@@ -4,13 +4,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import MapCanvas, { MapHandle } from './map/MapCanvas'
 import type { CountySel } from './map/CountyLayer'
-import CitySearch from './CitySearch'
+import CitySearch, { type CountyName, type SearchHit } from './CitySearch'
 import RegionSwitch from './RegionSwitch'
-import Drawer, { DrawerMode } from './Drawer'
+import Drawer, { DrawerMode, DrawerTarget } from './Drawer'
 import Playback, { PingEvent } from './Playback'
 import Sidebar, { Tab } from './Sidebar'
 import { MapData } from '@/lib/mapdata'
-import { cityCodeOf, VisitDTO } from '@/lib/visit'
+import { cityCodeOf, visitStats, VisitDTO } from '@/lib/visit'
 import { PersonDTO, UNASSIGNED_COLOR } from '@/lib/person'
 import { DEFAULT_REGION, REGIONS, RegionCode, regionOf } from '@/lib/regions'
 import { stamp } from '@/lib/date'
@@ -38,8 +38,13 @@ export default function MapApp({ user, initialRegion }: { user: User; initialReg
   const [error, setError] = useState('')
 
   const [selected, setSelected] = useState<number | null>(null)
-  /** 选中的区县。P3 只做高亮，记录入口在 P4 */
+  /** 选中的区县（带名字，抽屉标题和写入都要用） */
   const [countySel, setCountySel] = useState<CountySel>(null)
+  const [countyName, setCountyName] = useState<string>('')
+  /** 当前下钻市的区县总数，用于「本市区县进度 x/y」；取不到就为 0 */
+  const [countyTotal, setCountyTotal] = useState(0)
+  /** 全量区县名录（无几何，112KB）。空闲时再取，不抢首屏 */
+  const [countyNames, setCountyNames] = useState<CountyName[]>([])
   const [mode, setMode] = useState<DrawerMode>('detail')
   const [editing, setEditing] = useState<VisitDTO | null>(null)
   const [open, setOpen] = useState(false)
@@ -72,6 +77,30 @@ export default function MapApp({ user, initialRegion }: { user: User; initialReg
 
   const data = maps[region] ?? null
   const conf = regionOf(region)
+
+  /**
+   * 区县名录只给搜索用，而且要能搜到还没加载分片的区县，所以必须全量取。
+   * 112KB，放到空闲时再拉，不跟首屏的地图和到访抢带宽。
+   */
+  useEffect(() => {
+    const drill = conf.drill
+    if (!drill || countyNames.length) return
+    let alive = true
+    const run = () => {
+      fetch(drill.names)
+        .then((r) => r.json())
+        .then((list: CountyName[]) => alive && setCountyNames(list))
+        .catch(() => {}) // 取不到就退化成只搜市，不打扰用户
+    }
+    const idle = (window as unknown as {
+      requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number
+    }).requestIdleCallback
+    const id = idle ? idle(run, { timeout: 4000 }) : window.setTimeout(run, 1200)
+    return () => {
+      alive = false
+      if (!idle) clearTimeout(id)
+    }
+  }, [conf, countyNames.length])
 
   const byCode = useMemo(() => new Map((data?.u ?? []).map((u) => [u.a, u])), [data])
 
@@ -179,22 +208,75 @@ export default function MapApp({ user, initialRegion }: { user: User; initialReg
     return withCity
   }, [shownVisits, cutoff])
 
-  const tripsOfSelected = useMemo(
-    () =>
-      visits
-        .filter((v) => v.country === region && v.adcode === selected)
-        .sort((a, b) => b.visitedOn.localeCompare(a.visitedOn)),
-    [visits, region, selected],
-  )
+  /** 抽屉的目标单元：区县优先（选了区县就是在看区县） */
+  const drawerTarget = useMemo((): DrawerTarget | null => {
+    if (countySel) {
+      const city = byCode.get(countySel.parent)
+      return {
+        level: 'county',
+        adcode: countySel.adcode,
+        name: countyName || String(countySel.adcode),
+        groupName: city?.n ?? '',
+        parent: countySel.parent,
+        parentName: city?.n ?? null,
+      }
+    }
+    if (selected === null) return null
+    const u = byCode.get(selected)
+    if (!u) return null
+    return { level: 'city', adcode: u.a, name: u.n, groupName: u.p, parent: null, parentName: null }
+  }, [countySel, countyName, selected, byCode])
+
+  const tripsOfSelected = useMemo(() => {
+    if (!drawerTarget) return []
+    return visits
+      .filter(
+        (v) =>
+          v.country === region &&
+          v.level === drawerTarget.level &&
+          v.adcode === drawerTarget.adcode,
+      )
+      .sort((a, b) => b.visitedOn.localeCompare(a.visitedOn))
+  }, [visits, region, drawerTarget])
+
+  /**
+   * 取消点亮的真实范围。按市删会连名下区县一起扫掉，确认文案必须报全。
+   */
+  const deleteScope = useMemo(() => {
+    if (!drawerTarget) return { total: 0, counties: 0 }
+    const own = tripsOfSelected.length
+    if (drawerTarget.level === 'county') return { total: own, counties: 0 }
+    const counties = visits.filter(
+      (v) => v.country === region && v.level === 'county' && v.parentAdcode === drawerTarget.adcode,
+    ).length
+    return { total: own + counties, counties }
+  }, [drawerTarget, tripsOfSelected, visits, region])
+
+  /** 区县级且自己没记录时，父级市有几条市级记录 —— 决定要不要解释斜纹 */
+  const inheritedFrom = useMemo(() => {
+    if (drawerTarget?.level !== 'county' || tripsOfSelected.length) return 0
+    return visits.filter(
+      (v) => v.country === region && v.level === 'city' && v.adcode === drawerTarget.parent,
+    ).length
+  }, [drawerTarget, tripsOfSelected, visits, region])
 
   const provinceProgress = useMemo((): [number, number] => {
-    if (!data || selected === null) return [0, 0]
-    const prov = byCode.get(selected)?.p
+    if (!data || !drawerTarget) return [0, 0]
+    if (drawerTarget.level === 'county') {
+      // 本市已记了几个区县 / 该市区县总数（总数来自分片，取不到就只报分子）
+      const done = new Set(
+        shownVisits
+          .filter((v) => v.level === 'county' && v.parentAdcode === drawerTarget.parent)
+          .map((v) => v.adcode),
+      ).size
+      return [done, countyTotal]
+    }
+    const prov = byCode.get(drawerTarget.adcode)?.p
     if (!prov) return [0, 0]
     const cities = data.u.filter((u) => u.p === prov)
-    const litSet = new Set(shownVisits.map((v) => v.adcode))
+    const litSet = new Set(shownVisits.map((v) => cityCodeOf(v)))
     return [cities.filter((u) => litSet.has(u.a)).length, cities.length]
-  }, [data, byCode, selected, shownVisits])
+  }, [data, byCode, drawerTarget, shownVisits, countyTotal])
 
   /* ---------- 交互 ---------- */
   const focusAndOpen = useCallback((adcode: number) => {
@@ -223,6 +305,7 @@ export default function MapApp({ user, initialRegion }: { user: User; initialReg
     setOpen(false)
     setSelected(null)
     setCountySel(null)
+    setCountyName('')
     setEditing(null)
   }, [])
 
@@ -268,9 +351,7 @@ export default function MapApp({ user, initialRegion }: { user: User; initialReg
     note: string
     personIds: string[]
   }) => {
-    if (selected === null) return
-    const unit = byCode.get(selected)
-    if (!unit) return
+    if (!drawerTarget) return
     setBusy(true)
     setError('')
     try {
@@ -281,13 +362,19 @@ export default function MapApp({ user, initialRegion }: { user: User; initialReg
         })
         setVisits((vs) => vs.map((v) => (v.id === updated.id ? updated : v)))
       } else {
+        const isCounty = drawerTarget.level === 'county'
+        // 区县级：adcode 是区县码，cityName 存区县名，province 沿用父级市的省，
+        // parentAdcode 必填 —— 服务端还会拿名录再校验一遍父子关系
+        const parentUnit = isCounty ? byCode.get(drawerTarget.parent!) : null
         const created: VisitDTO = await request('/api/visits', {
           method: 'POST',
           body: JSON.stringify({
             country: region,
-            adcode: unit.a,
-            cityName: unit.n,
-            province: unit.p,
+            adcode: drawerTarget.adcode,
+            level: drawerTarget.level,
+            parentAdcode: isCounty ? drawerTarget.parent : null,
+            cityName: drawerTarget.name,
+            province: isCounty ? parentUnit?.p ?? '' : drawerTarget.groupName,
             visitedOn,
             note,
             personIds,
@@ -317,14 +404,20 @@ export default function MapApp({ user, initialRegion }: { user: User; initialReg
     }
   }
 
-  /** 取消点亮：删掉这座城市的全部到访 */
+  /**
+   * 取消点亮。传市码时服务端会连它名下的区县记录一起删（OR 语义），
+   * 所以本地也要按同样的口径过滤，不然列表和地图会短暂不一致。
+   */
   const removeCity = async () => {
-    if (selected === null) return
+    if (!drawerTarget) return
+    const a = drawerTarget.adcode
     setBusy(true)
     setError('')
     try {
-      await request(`/api/visits?country=${region}&adcode=${selected}`, { method: 'DELETE' })
-      setVisits((vs) => vs.filter((v) => !(v.country === region && v.adcode === selected)))
+      await request(`/api/visits?country=${region}&adcode=${a}`, { method: 'DELETE' })
+      setVisits((vs) =>
+        vs.filter((v) => !(v.country === region && (v.adcode === a || v.parentAdcode === a))),
+      )
     } catch (e) {
       setError(e instanceof Error ? e.message : '删除失败')
     } finally {
@@ -471,7 +564,25 @@ export default function MapApp({ user, initialRegion }: { user: User; initialReg
             onChange={switchRegion}
           />
 
-          <CitySearch units={data.u} onPick={focusAndOpen} />
+          <CitySearch
+            units={data.u}
+            counties={countyNames}
+            onPick={(hit) => {
+              if (hit.level === 'city') {
+                focusAndOpen(hit.adcode)
+                return
+              }
+              // 选中一个区县 = 下钻到它所属的市 + 选中该区县
+              setSelected(null)
+              setCountySel({ adcode: hit.adcode, parent: hit.parent })
+              setCountyName(hit.name)
+              setCountyTotal(0) // 分片到货后点一下会补上分母
+              setMode('detail')
+              setEditing(null)
+              setOpen(true)
+              mapRef.current?.drillInto(hit.parent)
+            }}
+          />
           <div className="zoom">
             <button onClick={() => mapRef.current?.zoomIn()} title="放大" aria-label="放大">
               ＋
@@ -508,7 +619,15 @@ export default function MapApp({ user, initialRegion }: { user: User; initialReg
             openDetail(a)
           }}
           onPickDouble={(a) => openForm(a)}
-          onPickCounty={(sel) => setCountySel({ adcode: sel.adcode, parent: sel.parent })}
+          onPickCounty={(sel) => {
+            setCountySel({ adcode: sel.adcode, parent: sel.parent })
+            setCountyName(sel.name)
+            setCountyTotal(sel.siblingCount)
+            setSelected(null)
+            setMode('detail')
+            setEditing(null)
+            setOpen(true)
+          }}
         />
 
         <div className="legend">
@@ -547,7 +666,7 @@ export default function MapApp({ user, initialRegion }: { user: User; initialReg
 
       <Drawer
         open={open}
-        unit={selected !== null ? byCode.get(selected) ?? null : null}
+        target={drawerTarget}
         mode={mode}
         trips={tripsOfSelected}
         hiddenByFilter={
@@ -556,14 +675,24 @@ export default function MapApp({ user, initialRegion }: { user: User; initialReg
             : 0
         }
         provinceProgress={provinceProgress}
+        inheritedFrom={inheritedFrom}
+        deleteScope={deleteScope}
         editing={editing}
         persons={persons}
         conf={conf}
         busy={busy}
         onGoPersons={() => setTab('persons')}
         onClose={close}
-        onStartCreate={() => selected !== null && openForm(selected)}
-        onStartEdit={(v) => openForm(v.adcode, v)}
+        onStartCreate={() => {
+          setMode('form')
+          setEditing(null)
+          setOpen(true)
+        }}
+        onStartEdit={(v) => {
+          setEditing(v)
+          setMode('form')
+          setOpen(true)
+        }}
         onCancelForm={() => {
           setMode('detail')
           setEditing(null)
