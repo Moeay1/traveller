@@ -96,6 +96,29 @@ def test_fetch_json_does_not_cache_a_truncated_download():
 def test_apply_affine_flips_y():
     assert apply_affine(2.0, 1.0, 100.0, 3.0, 4.0) == (7.0, 92.0)
 
+def _load_bc():
+    """build-counties.py 名字里带横线，不能直接 import，按路径加载"""
+    import importlib.util
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'build-counties.py')
+    spec = importlib.util.spec_from_file_location('build_counties', path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+def test_coarse_from_bboxes_maps_corners():
+    """粗估：投影包围盒 → 目标包围盒。y 翻转，所以投影的 min y 对应目标的 max Y"""
+    bc = _load_bc()
+    s, a, b = bc.coarse_from_bboxes(
+        (0.0, 0.0, 2.0, 1.0),        # 投影 bbox: minx miny maxx maxy
+        (0.0, 0.0, 1000.0, 500.0),   # 目标 bbox
+    )
+    assert abs(s - 500.0) < 1e-9, s
+    assert abs(apply_affine(s, a, b, 0.0, 0.0)[0] - 0.0) < 1e-9
+    assert abs(apply_affine(s, a, b, 2.0, 0.0)[0] - 1000.0) < 1e-9
+    # 投影 y=0（最南）→ 目标 Y=500（最下）
+    assert abs(apply_affine(s, a, b, 0.0, 0.0)[1] - 500.0) < 1e-9
+    assert abs(apply_affine(s, a, b, 0.0, 1.0)[1] - 0.0) < 1e-9
+
 if __name__ == '__main__':
     fns = [v for k, v in sorted(globals().items()) if k.startswith('test_')]
     for fn in fns:

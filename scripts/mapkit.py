@@ -5,7 +5,9 @@
 build-map.py（整包地图）和 build-counties.py（区县分片）都用这里的实现，
 两边必须逐位一致 —— 区县要能和 cn.json 的市界严丝合缝对上，靠的就是这一点。
 """
-import json, math, os, urllib.request
+import json, math, os, time, urllib.error, urllib.request
+
+FETCH_RETRIES = 4
 
 # ---------------------------------------------------------------- 几何
 
@@ -111,11 +113,25 @@ def fetch_json(url, cache_name):
     if not os.path.exists(cache):
         print(f'  下载 {url}')
         part = cache + '.part'
-        try:
-            urllib.request.urlretrieve(url, part)
-            os.replace(part, cache)
-        finally:
-            if os.path.exists(part):
-                os.remove(part)
+        last = None
+        for attempt in range(FETCH_RETRIES):
+            try:
+                urllib.request.urlretrieve(url, part)
+                # 传完了也要确认是完整 JSON：截断的响应有时不触发 ContentTooShortError
+                with open(part) as f:
+                    json.load(f)
+                os.replace(part, cache)
+                last = None
+                break
+            except (urllib.error.ContentTooShortError, urllib.error.URLError,
+                    json.JSONDecodeError, TimeoutError) as e:
+                last = e
+                if os.path.exists(part):
+                    os.remove(part)
+                if attempt + 1 < FETCH_RETRIES:
+                    print(f'    第 {attempt + 1} 次失败（{type(e).__name__}），重试')
+                    time.sleep(1.5 * (attempt + 1))
+        if last is not None:
+            raise last
     with open(cache) as f:
         return json.load(f)
