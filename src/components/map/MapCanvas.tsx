@@ -579,6 +579,13 @@ const MapCanvas = forwardRef<MapHandle, Props>(function MapCanvas(
             <feDropShadow dx="0" dy="1.4" stdDeviation="2.2" floodColor="#2A2118" floodOpacity=".26" />
           </filter>
           {/* 斜纹也在用户坐标里，尺寸跟着视窗缩，否则放大后粗成色块 */}
+          {/*
+            斜纹。两处坑：
+            1) 尺寸在用户坐标里，要乘 k 抵掉 viewBox 放大，否则放大后粗成色块。
+            2) 颜色必须写在 style 里，不能写成 fill="var(--lit-soft)" —— var() 只在
+               CSS 声明里有效，SVG 表现属性是按 SVG 值解析的，写成属性等于无效值，
+               pattern 什么都画不出来，区县会整片变透明（而且不报任何错）。
+          */}
           <pattern
             id="hatch"
             width={6 * k}
@@ -586,8 +593,15 @@ const MapCanvas = forwardRef<MapHandle, Props>(function MapCanvas(
             patternUnits="userSpaceOnUse"
             patternTransform="rotate(45)"
           >
-            <rect width={6 * k} height={6 * k} fill="var(--lit-soft)" />
-            <line x1="0" y1="0" x2="0" y2={6 * k} stroke="var(--lit)" strokeWidth={k} opacity=".42" />
+            <rect width={6 * k} height={6 * k} style={{ fill: 'var(--lit-soft)' }} />
+            <line
+              x1="0"
+              y1="0"
+              x2="0"
+              y2={6 * k}
+              strokeWidth={k}
+              style={{ stroke: 'var(--lit)', opacity: 0.42 }}
+            />
           </pattern>
           {combos.map(([key, colors]) => (
             <linearGradient key={key} id={key} x1="0" y1="0" x2="1" y2="1">
@@ -649,7 +663,11 @@ const MapCanvas = forwardRef<MapHandle, Props>(function MapCanvas(
 
       <InsetMap data={data} inset={inset} lit={lit} fillOf={fillOfCity} selected={selected} />
 
-      <div id="ctyLegend" hidden={t === 0} aria-hidden="true">
+      {/*
+        透明度用内联值，不要靠 CSS 里的 var(--t)：--t 写在 <svg> 的内联样式上，
+        而这个图例是 svg 的兄弟节点，拿不到那个变量，会一直退回默认值 0 —— 图例永远不显示。
+      */}
+      <div id="ctyLegend" hidden={t === 0} style={{ opacity: t }} aria-hidden="true">
         <div><i className="f-lit" />已记到区县</div>
         <div><i className="f-inh" />只记到市，区县待补</div>
         <div><i className="f-blk" />没去过</div>
