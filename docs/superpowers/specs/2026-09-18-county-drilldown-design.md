@@ -140,11 +140,22 @@ model Visit {
 
 - `adcode` 的语义变成「这条记录所在地图单元的代码」，是市码还是区县码由 `level` 决定。中国的市码和区县码都是 6 位，不靠 `level` 区分不开。
 - 迁移：`level` 有默认值 `'city'`，老记录自动就是正确的；`parentAdcode` 留 null。不需要数据回填。
-- 应用层校验（`src/lib/validation.ts`，不做 DB 约束）：
-  - `level='county'` 时 `parentAdcode` 必填
-  - `parentAdcode` 必须确实是 `adcode` 所属的市（查已加载的分片索引校验）
-  - `level='city'` 时 `parentAdcode` 必须为 null
-- 按项目既有做法走 `prisma db push`（README 里已说明这个取舍）。
+- 应用层校验（不做 DB 约束）：
+  - 跨字段规则在 `src/lib/validation.ts` 的 `visitInputSchema.superRefine` 里：`level='county'` 要求 `parentAdcode` 必填、且不等于 `adcode`、且 `country='CN'`；`level='city'` 要求 `parentAdcode` 为 null。
+  - 「`parentAdcode` 是否真的是这个区县的父级市」要查名录，放在 API 路由里（zod 里做不了异步读文件）。
+- 按项目既有做法走 `prisma db push`（README 里已说明这个取舍）。**迁移已验证**：43 条老记录全部自动落到 `level='city'` / `parentAdcode=null`，不需要回填。
+
+#### 父级市不能靠 adcode 前缀推
+
+中国区划码是「省2+市2+县2」，看着 `floor(adcode/100)*100` 就是父级市。**对 86 个区县是错的** —— 四个直辖市在 `cn.json` 里是整体单元（北京 `110000`），而东城区是 `110101`，前缀推出 `110100`，那是地图上不存在的码，那座城永远不会被点亮。
+
+所以服务端必须查 `public/data/cn/names.json`（P1 生成的无几何名录，2812 条 / 112KB）。`src/lib/counties.ts` 进程内只解析一次，提供 `parentOfCounty()` / `resolveCountyName()`。
+
+#### 取消点亮要连区县记录一起删
+
+`DELETE /api/visits?adcode=X` 原本是「删掉该 adcode 的全部到访」。加了区县之后这会留下一个很别扭的 bug：区县记录的 `adcode` 是区县码，按市码删删不到，而按 §6 的点亮规则那座城仍然是亮的 —— 用户点了「取消点亮」，城还亮着。
+
+改成 `OR: [{ adcode }, { parentAdcode: adcode }]`。这一个写法同时覆盖两种语义：传市码连区县一起删，传区县码只删那个区县（区县没有下级，`parentAdcode` 分支命中不了任何记录）。已用真实数据库验证：旧写法 3 条只命中 1 条，新写法全扫、零残留。
 
 ## 4. 层级抽象
 
