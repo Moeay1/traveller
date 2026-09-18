@@ -10,7 +10,10 @@
 输出格式（跟 cn.json 一致）：
   { w, h, u: [{ n 名称, a 代码, p 上级分组, c [x,y] 标注锚点, g [[扁平坐标]] }], jd: [], pv: [] }
 """
-import json, math, os, sys, urllib.request
+import json, os, sys, urllib.request
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from mapkit import rings_of, make_proj, dp
 
 # ---------------------------------------------------------------- 区域配置
 
@@ -60,47 +63,6 @@ def jp_group(pid):
     for name, rng in JP_GROUPS:
         if pid in rng: return name
     return '其它'
-
-# ---------------------------------------------------------------- 几何工具
-
-def rings_of(geom):
-    t, c = geom['type'], geom['coordinates']
-    if t == 'Polygon': return list(c)
-    if t == 'MultiPolygon': return [r for poly in c for r in poly]
-    return []
-
-def make_proj(lon0, lat0, p1, p2):
-    lat0, lon0 = math.radians(lat0), math.radians(lon0)
-    p1, p2 = math.radians(p1), math.radians(p2)
-    n = (math.sin(p1) + math.sin(p2)) / 2
-    C = math.cos(p1) ** 2 + 2 * n * math.sin(p1)
-    rho0 = math.sqrt(C - 2 * n * math.sin(lat0)) / n
-    def proj(lon, lat):
-        lam, phi = math.radians(lon), math.radians(lat)
-        rho = math.sqrt(max(C - 2 * n * math.sin(phi), 1e-9)) / n
-        th = n * (lam - lon0)
-        return rho * math.sin(th), rho0 - rho * math.cos(th)
-    return proj, n
-
-def dp(pts, eps):
-    """道格拉斯-普克抽稀"""
-    if len(pts) < 3: return pts
-    keep = [False] * len(pts); keep[0] = keep[-1] = True
-    stack = [(0, len(pts) - 1)]
-    while stack:
-        i, j = stack.pop()
-        if j <= i + 1: continue
-        ax, ay = pts[i]; bx, by = pts[j]
-        dx, dy = bx - ax, by - ay
-        L = math.hypot(dx, dy)
-        best, bi = -1, -1
-        for k in range(i + 1, j):
-            px, py = pts[k]
-            d = abs(dy * px - dx * py + bx * ay - by * ax) / L if L else math.hypot(px - ax, py - ay)
-            if d > best: best, bi = d, k
-        if best > eps:
-            keep[bi] = True; stack.append((i, bi)); stack.append((bi, j))
-    return [p for p, k in zip(pts, keep) if k]
 
 # ---------------------------------------------------------------- 主流程
 

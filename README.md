@@ -4,6 +4,7 @@
 
 中国地图精确到**地级行政单元**（370 个：地级市 / 自治州 / 地区 / 盟，直辖市与港澳台各算一个，海南直管县单列），
 边界数据来自高德开放的行政区划，经 Albers 等积投影和道格拉斯-普克简化后内置在 `public/data/cn.json`。
+地级之下还有一层**区县**（2812 个），按市切成 332 个分片放在 `public/data/cn/`，缩放到一两个省的跨度时按需加载。
 
 ## 多国家
 
@@ -18,6 +19,7 @@
 | 粒度 | 地级市 370 个 | 都道府県 47 个 |
 | 投影 | Albers（基准 105°E，标准纬线 25°/47°） | Albers（基准 137°E，标准纬线 33°/45°） |
 | 数据 | `public/data/cn.json` 520 KB | `public/data/jp.json` 42 KB |
+| 下钻 | 区县 2812 个 / 332 分片 / 合计 2.6 MB（中位 7.2 KB） | 无（都道府県已是最细一层） |
 | 小图 | 南海诸岛（含九段线） | 冲绳县 |
 
 **为什么不共用一套投影**：Albers 是圆锥投影，离基准经线越远旋转越大。用中国那套（105°E）画日本，
@@ -183,14 +185,39 @@ prisma/
 └─ seed.mjs                    预置账号，可选灌示例足迹
 
 scripts/
+├─ mapkit.py                   共享的投影、抽稀、面积、仿射标定
 ├─ build-map.py                生成 public/data/*.json：投影、简化容差、排除远洋岛屿
+├─ build-counties.py           标定 cn.json 的变换 + 生成区县分片
+├─ verify_transform.py         独立复核标定：整环逐顶点比对
+├─ test_mapkit.py              mapkit 的回归测试（npm run map:test）
+├─ cn-transform.json           标定出来的仿射变换，build-counties.py 的输入
 ├─ backup.mjs                  导出 JSON 到 ./backups/，保留最近 30 份
 └─ restore.mjs                 从 JSON 恢复，默认演练不写入
 
 public/data/
 ├─ cn.json                     中国 370 个地级行政单元
+├─ cn/                         区县分片，每个地级单元一片
+│  ├─ 530100.json              昆明市的 14 个区县
+│  ├─ index.json               片数 / 体积索引，以及没有下级的单元清单
+│  └─ names.json               全量区县名录（无几何，搜索用）
 └─ jp.json                     日本 47 个都道府県
 ```
+
+### 区县数据怎么生成
+
+`cn.json` 是**不可变基准** —— `src/lib/regions.ts` 里的 `view` 和 `inset.viewBox` 都是在它的
+坐标空间里手调出来的，重新生成一旦漂移零点几，南海诸岛小图会悄悄错位。所以区县不是重新跑一遍
+全国投影，而是先把 `cn.json` 的仿射变换**标定**出来再复用：
+
+```bash
+npm run map:calibrate   # 反推 cn.json 的 (s, a, b)，写入 scripts/cn-transform.json
+npm run map:verify      # 独立复核：整环逐顶点比对，最大偏差应在 0.06 量级
+npm run map:counties    # 按市抓取下级区划并生成分片
+npm run map:test        # mapkit 的回归测试
+```
+
+标定的残差全部压在 `cn.json` 1 位小数的量化下界（±0.05）上，说明投影参数完全正确、
+残差里没有系统性成分。详见 `docs/superpowers/specs/2026-09-18-county-drilldown-design.md`。
 
 ## 人物
 
