@@ -145,8 +145,11 @@ export default function Drawer({
               )}
               <dt>{progressLabel}</dt>
               <dd>
+                {/* 分母可能还不知道（比如从搜索进来、该市的分片还没加载），
+                    这时候只报分子 —— 「1/0」比没有分母更像 bug */}
                 <span className="mono">
-                  {provLit}/{provTotal}
+                  {provLit}
+                  {provTotal > 0 ? `/${provTotal}` : ''}
                 </span>{' '}
                 {progressUnit}
               </dd>

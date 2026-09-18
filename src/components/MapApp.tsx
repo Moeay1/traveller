@@ -279,27 +279,65 @@ export default function MapApp({ user, initialRegion }: { user: User; initialReg
   }, [data, byCode, drawerTarget, shownVisits, countyTotal])
 
   /* ---------- 交互 ---------- */
+  /**
+   * 选中一个市。必须同时清掉区县选中 —— drawerTarget 优先用 countySel，
+   * 漏了这一步的话从搜索或侧栏列表点市，抽屉会停在上一个区县上。
+   * 所以统一从这里出口，别在各个调用点分别记得清。
+   */
+  const selectCity = useCallback((adcode: number) => {
+    setCountySel(null)
+    setCountyName('')
+    setSelected(adcode)
+  }, [])
+
   const focusAndOpen = useCallback((adcode: number) => {
     mapRef.current?.focus(adcode)
-    setSelected(adcode)
+    selectCity(adcode)
     setMode('detail')
     setEditing(null)
     setOpen(true)
-  }, [])
+  }, [selectCity])
 
   const openDetail = useCallback((adcode: number) => {
-    setSelected(adcode)
+    selectCity(adcode)
     setMode('detail')
     setEditing(null)
     setOpen(true)
-  }, [])
+  }, [selectCity])
+
+  /** 选中一个区县：下钻到父级市 + 选中它。分片里的区县总数到货后由点击补上 */
+  const selectCounty = useCallback(
+    (adcode: number, parent: number, name: string, siblingCount = 0) => {
+      setSelected(null)
+      setCountySel({ adcode, parent })
+      setCountyName(name)
+      setCountyTotal(siblingCount)
+      setMode('detail')
+      setEditing(null)
+      setOpen(true)
+    },
+    [],
+  )
+
+  /** 点足迹列表里的一条：按它的层级决定是聚焦到市还是下钻到区县 */
+  const focusVisit = useCallback(
+    (v: VisitDTO) => {
+      if (v.level === 'county' && v.parentAdcode !== null) {
+        selectCounty(v.adcode, v.parentAdcode, v.cityName)
+        mapRef.current?.drillInto(v.parentAdcode)
+        return
+      }
+      focusAndOpen(v.adcode)
+    },
+    [selectCounty, focusAndOpen],
+  )
 
   const openForm = useCallback((adcode: number, visit: VisitDTO | null = null) => {
-    setSelected(adcode)
+    selectCity(adcode)
     setEditing(visit)
     setMode('form')
     setOpen(true)
-  }, [])
+  }, [selectCity])
 
   const close = useCallback(() => {
     setOpen(false)
@@ -549,7 +587,7 @@ export default function MapApp({ user, initialRegion }: { user: User; initialReg
           setTab(t)
           setPanelCollapsed(false) // 点标签页说明是要看内容，顺手展开
         }}
-        onFocus={focusAndOpen}
+        onFocus={focusVisit}
         collapsed={panelCollapsed}
         onToggleCollapse={() => setPanelCollapsed((v) => !v)}
       />
@@ -573,13 +611,7 @@ export default function MapApp({ user, initialRegion }: { user: User; initialReg
                 return
               }
               // 选中一个区县 = 下钻到它所属的市 + 选中该区县
-              setSelected(null)
-              setCountySel({ adcode: hit.adcode, parent: hit.parent })
-              setCountyName(hit.name)
-              setCountyTotal(0) // 分片到货后点一下会补上分母
-              setMode('detail')
-              setEditing(null)
-              setOpen(true)
+              selectCounty(hit.adcode, hit.parent, hit.name)
               mapRef.current?.drillInto(hit.parent)
             }}
           />
@@ -614,20 +646,11 @@ export default function MapApp({ user, initialRegion }: { user: User; initialReg
           countySel={countySel}
           frozen={playing}
           ping={ping}
-          onPick={(a) => {
-            setCountySel(null)
-            openDetail(a)
-          }}
+          onPick={openDetail}
           onPickDouble={(a) => openForm(a)}
-          onPickCounty={(sel) => {
-            setCountySel({ adcode: sel.adcode, parent: sel.parent })
-            setCountyName(sel.name)
-            setCountyTotal(sel.siblingCount)
-            setSelected(null)
-            setMode('detail')
-            setEditing(null)
-            setOpen(true)
-          }}
+          onPickCounty={(sel) =>
+            selectCounty(sel.adcode, sel.parent, sel.name, sel.siblingCount)
+          }
         />
 
         <div className="legend">

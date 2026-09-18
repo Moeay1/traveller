@@ -31,7 +31,11 @@ type Props = {
   personProps: React.ComponentProps<typeof PersonPanel>
   tab: Tab
   onTabChange: (t: Tab) => void
-  onFocus: (adcode: number) => void
+  /**
+   * 点足迹列表里的一条。必须把整条记录交出去 —— 区县记录的 adcode 是区县码，
+   * 只传 adcode 的话上层拿它去查市表会查不到，抽屉开出来是空的。
+   */
+  onFocus: (v: VisitDTO) => void
   /** 手机上底部面板是否收起 */
   collapsed: boolean
   onToggleCollapse: () => void
@@ -257,7 +261,7 @@ export default function Sidebar({
                     <em>{list.length} 次到访</em>
                   </div>
                   {list.map((v) => (
-                    <div className="rec" key={v.id} onClick={() => onFocus(v.adcode)}>
+                    <div className="rec" key={v.id} onClick={() => onFocus(v)}>
                       {v.persons.length ? (
                         <AvatarStack persons={v.persons} size={22} max={3} />
                       ) : (
