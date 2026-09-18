@@ -2,14 +2,15 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
-import ChinaMap, { MapHandle } from './ChinaMap'
+import MapCanvas, { MapHandle } from './map/MapCanvas'
+import type { CountySel } from './map/CountyLayer'
 import CitySearch from './CitySearch'
 import RegionSwitch from './RegionSwitch'
 import Drawer, { DrawerMode } from './Drawer'
 import Playback, { PingEvent } from './Playback'
 import Sidebar, { Tab } from './Sidebar'
 import { MapData } from '@/lib/mapdata'
-import { VisitDTO } from '@/lib/visit'
+import { cityCodeOf, VisitDTO } from '@/lib/visit'
 import { PersonDTO, UNASSIGNED_COLOR } from '@/lib/person'
 import { DEFAULT_REGION, REGIONS, RegionCode, regionOf } from '@/lib/regions'
 import { stamp } from '@/lib/date'
@@ -37,6 +38,8 @@ export default function MapApp({ user, initialRegion }: { user: User; initialReg
   const [error, setError] = useState('')
 
   const [selected, setSelected] = useState<number | null>(null)
+  /** 选中的区县。P3 只做高亮，记录入口在 P4 */
+  const [countySel, setCountySel] = useState<CountySel>(null)
   const [mode, setMode] = useState<DrawerMode>('detail')
   const [editing, setEditing] = useState<VisitDTO | null>(null)
   const [open, setOpen] = useState(false)
@@ -96,7 +99,8 @@ export default function MapApp({ user, initialRegion }: { user: User; initialReg
   const lit = useMemo(() => {
     const s = new Set<number>()
     for (const v of shownVisits) {
-      if (cutoff === null || stamp(v.visitedOn) <= cutoff) s.add(v.adcode)
+      // 折叠到市这一层：区县级记录点亮的是它所属的市
+      if (cutoff === null || stamp(v.visitedOn) <= cutoff) s.add(cityCodeOf(v))
     }
     return s
   }, [shownVisits, cutoff])
@@ -114,14 +118,14 @@ export default function MapApp({ user, initialRegion }: { user: User; initialReg
     const m = new Map<number, string[]>()
     for (const v of shownVisits) {
       if (cutoff !== null && stamp(v.visitedOn) > cutoff) continue
-      const cur = m.get(v.adcode) ?? []
+      const cur = m.get(cityCodeOf(v)) ?? []
       const people = keep ? v.persons.filter((p) => keep.has(p.id)) : v.persons
       if (people.length === 0) {
         if (!cur.includes(UNASSIGNED_COLOR)) cur.push(UNASSIGNED_COLOR)
       } else {
         for (const p of people) if (!cur.includes(p.color)) cur.push(p.color)
       }
-      m.set(v.adcode, cur)
+      m.set(cityCodeOf(v), cur)
     }
     // 按人物面板里的顺序排，保证同样一组人在不同城市上的配色一致
     for (const [k, cs] of m) {
@@ -136,6 +140,44 @@ export default function MapApp({ user, initialRegion }: { user: User; initialReg
     }
     return m
   }, [shownVisits, cutoff, persons, filterIds])
+
+  /**
+   * 区县自己的颜色。只有 level='county' 的记录才落在这里 ——
+   * 市级记录不该把它名下所有区县都点亮，那是斜纹状态要表达的事。
+   */
+  const countyColors = useMemo(() => {
+    const keep = filterIds.length ? new Set(filterIds) : null
+    const m = new Map<number, string[]>()
+    for (const v of shownVisits) {
+      if (v.level !== 'county') continue
+      if (cutoff !== null && stamp(v.visitedOn) > cutoff) continue
+      const cur = m.get(v.adcode) ?? []
+      const people = keep ? v.persons.filter((p) => keep.has(p.id)) : v.persons
+      if (people.length === 0) {
+        if (!cur.includes(UNASSIGNED_COLOR)) cur.push(UNASSIGNED_COLOR)
+      } else {
+        for (const p of people) if (!cur.includes(p.color)) cur.push(p.color)
+      }
+      m.set(v.adcode, cur)
+    }
+    return m
+  }, [shownVisits, cutoff, filterIds])
+
+  /**
+   * 有市级记录、但名下一个区县记录都没有的市 —— 它的区县整片画成斜纹。
+   * 「去过这个市，还没细化到区县」，这是老记录不回填也能有合理呈现的关键。
+   */
+  const inheritCities = useMemo(() => {
+    const withCity = new Set<number>()
+    const withCounty = new Set<number>()
+    for (const v of shownVisits) {
+      if (cutoff !== null && stamp(v.visitedOn) > cutoff) continue
+      if (v.level === 'county') withCounty.add(cityCodeOf(v))
+      else withCity.add(v.adcode)
+    }
+    for (const a of withCounty) withCity.delete(a)
+    return withCity
+  }, [shownVisits, cutoff])
 
   const tripsOfSelected = useMemo(
     () =>
@@ -180,6 +222,7 @@ export default function MapApp({ user, initialRegion }: { user: User; initialReg
   const close = useCallback(() => {
     setOpen(false)
     setSelected(null)
+    setCountySel(null)
     setEditing(null)
   }, [])
 
@@ -445,19 +488,27 @@ export default function MapApp({ user, initialRegion }: { user: User; initialReg
           </button>
         </div>
 
-        <ChinaMap
+        <MapCanvas
           ref={mapRef}
           key={region}
           baseView={conf.view}
           inset={conf.inset}
+          drill={conf.drill}
           data={data}
           lit={lit}
           cityColors={cityColors}
+          countyColors={countyColors}
+          inheritCities={inheritCities}
           selected={selected}
+          countySel={countySel}
           frozen={playing}
           ping={ping}
-          onPick={openDetail}
+          onPick={(a) => {
+            setCountySel(null)
+            openDetail(a)
+          }}
           onPickDouble={(a) => openForm(a)}
+          onPickCounty={(sel) => setCountySel({ adcode: sel.adcode, parent: sel.parent })}
         />
 
         <div className="legend">
