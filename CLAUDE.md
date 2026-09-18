@@ -48,14 +48,19 @@ tail -5 ~/Library/Logs/traveller.log                                        # �
 
 **2. 不要习惯性 `npm run build`。**
 
-判断依据是 `.next/BUILD_ID` 的时间戳 vs 最后一次 `src/` 改动的时间：
+判断依据是 `.next/BUILD_ID` 的时间戳 vs `src/` 里**文件的修改时间**：
 
 ```bash
-stat -f "%Sm" -t "%Y-%m-%d %H:%M" .next/BUILD_ID      # 当前构建时间
-git log -1 --format="%ad" --date=format:'%Y-%m-%d %H:%M' -- src/   # 最后一次 src 改动
+stat -f "%Sm  BUILD_ID" -t "%Y-%m-%d %H:%M:%S" .next/BUILD_ID
+find src -type f \( -name '*.ts' -o -name '*.tsx' -o -name '*.css' \) \
+  -exec stat -f "%Sm  %N" -t "%Y-%m-%d %H:%M:%S" {} + | sort -r | head -3
 ```
 
-构建时间晚于 src 改动时间 → 构建是新的，跳过第 3 步。`public/`、`scripts/`、`docs/`、`prisma/schema.prisma` 的改动都不需要重新构建（schema 改动要跑 `npm run db:push`，那是另一件事）。
+构建时间晚于最新的文件修改时间 → 构建是新的，跳过第 3 步。
+
+**不要拿 git 提交时间来比。**「先改文件 → 构建 → 验证 → 最后提交」是很自然的顺序，这种情况下提交时间会晚于构建时间，看着像过期，其实构建用的就是同样的内容。要确认构建来源和提交内容一致，看的是 `git status -- src/` 干不干净，不是时间先后。
+
+`public/`、`scripts/`、`docs/`、`prisma/schema.prisma` 的改动都不需要重新构建（schema 改动要跑 `npm run db:push`，那是另一件事）。
 
 ### 服务管理
 
