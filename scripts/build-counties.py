@@ -172,7 +172,114 @@ def load_transform():
         t = json.load(f)
     return t['s'], t['a'], t['b']
 
+# ---------------------------------------------------------------- 分片生成
+
+def city_area_of(unit):
+    """cn.json 单元的面积：所有环的绝对面积之和。区县侧用同样算法，比值才有意义。"""
+    total = 0.0
+    for r in unit['g']:
+        total += ring_area([(r[i], r[i + 1]) for i in range(0, len(r), 2)])
+    return total
+
+def make_shard(parent, counties):
+    """counties: [{'n','a','c','rings'}]，rings 是已套过仿射的点列"""
+    return {
+        'p': parent,
+        'u': [{
+            'n': c['n'],
+            'a': c['a'],
+            'c': [round(c['c'][0], 2), round(c['c'][1], 2)],
+            'g': [[round(v, 2) for p in r for v in p] for r in c['rings']],
+        } for c in counties],
+    }
+
+def build_one(code, name, proj, s, a, b, city_area):
+    if code in SKIP:
+        return None
+    try:
+        raw = fetch_json(BOUND.format(code), f'cn-{code}.geojson')
+    except Exception as e:
+        print(f'  ✗ {code} {name} 取数失败：{e}')
+        return None
+
+    counties, pts = [], 0
+    for f in raw['features']:
+        p = f['properties']
+        # 字段名来自 DataV areas_v3 的约定，不要当既成事实 —— 对不上就把实际字段打出来
+        if 'adcode' not in p or 'name' not in p:
+            sys.exit(f'✗ {code} 的要素属性里没有 adcode/name，实际字段：{sorted(p)}')
+        sub = int(p['adcode'])
+        if sub == code:          # 有些市的 _full 会把自己也带上，去掉
+            continue
+        rings = []
+        for r in rings_of(f['geometry']):
+            pr = dp([proj(c[0], c[1]) for c in r], COUNTY_EPS)
+            if len(pr) >= 4:
+                rings.append([apply_affine(s, a, b, x, y) for x, y in pr])
+        if not rings:
+            continue
+        big = max(rings, key=len)
+        counties.append({
+            'n': p['name'], 'a': sub, 'rings': rings,
+            'c': (sum(q[0] for q in big) / len(big), sum(q[1] for q in big) / len(big)),
+        })
+        pts += sum(len(r) for r in rings)
+
+    if not counties:
+        print(f'  · {code} {name} 没有下级区划，跳过')
+        return None
+
+    shard = make_shard(code, counties)
+    os.makedirs(OUT_DIR, exist_ok=True)
+    path = os.path.join(OUT_DIR, f'{code}.json')
+    with open(path, 'w') as f:
+        json.dump(shard, f, ensure_ascii=False, separators=(',', ':'))
+    size = os.path.getsize(path)
+
+    area = sum(ring_area(r) for c in counties for r in c['rings'])
+    cover = area / city_area if city_area else 0.0
+    flag = '' if abs(cover - 1) < 0.01 else '  ⚠ 面积对不上'
+    print(f'  {code} {name:<12} {len(counties):>3} 个区县  {pts:>6} 点  '
+          f'{size / 1024:>6.1f} KB  覆盖 {cover * 100:>6.2f}%{flag}')
+    return {'n': len(counties), 'size': size, 'pts': pts, 'cover': cover}
+
+PILOT = [530100, 310000, 440300, 150700, 540600]   # 面积悬殊，用来压体积上限
+
+def build(codes):
+    cn = load_cn()
+    proj, _ = make_proj(**PROJ_ARGS)
+    s, a, b = load_transform()
+    by_code = {u['a']: u for u in cn['u']}
+    stats, worst_cover = {}, 0.0
+    for code in codes:
+        u = by_code.get(code)
+        if not u:
+            print(f'  ✗ {code} 不在 cn.json 里')
+            continue
+        r = build_one(code, u['n'], proj, s, a, b, city_area_of(u))
+        if r:
+            stats[code] = r
+            worst_cover = max(worst_cover, abs(r['cover'] - 1))
+    if not stats:
+        sys.exit('✗ 一片都没生成')
+    sizes = sorted(v['size'] for v in stats.values())
+    total = sum(sizes)
+    mid = sizes[len(sizes) // 2]
+    print(f'\n共 {len(stats)} 片 · 合计 {total / 1024 / 1024:.2f} MB · '
+          f'中位 {mid / 1024:.1f} KB · 最大 {sizes[-1] / 1024:.1f} KB · '
+          f'面积最大偏差 {worst_cover * 100:.2f}%')
+    if sizes[-1] > 40 * 1024:
+        print(f'⚠ 最大分片超过 40KB，考虑调大 COUNTY_EPS（现在 {COUNTY_EPS}）')
+    if worst_cover >= 0.01:
+        print('⚠ 有市的区县面积和市界对不上超过 1%，几何没对齐，先查标定')
+    return stats
+
 if __name__ == '__main__':
     cmd = sys.argv[1] if len(sys.argv) > 1 else 'calibrate'
-    if cmd == 'calibrate': calibrate()
-    else: sys.exit(f'未知命令 {cmd}')
+    if cmd == 'calibrate':
+        calibrate()
+    elif cmd == 'build':
+        args = sys.argv[2:]
+        build(PILOT if not args else [int(x) for x in args])
+    else:
+        sys.exit(f'未知命令 {cmd}')

@@ -119,6 +119,23 @@ def test_coarse_from_bboxes_maps_corners():
     assert abs(apply_affine(s, a, b, 0.0, 0.0)[1] - 500.0) < 1e-9
     assert abs(apply_affine(s, a, b, 0.0, 1.0)[1] - 0.0) < 1e-9
 
+def test_city_area_sums_all_rings():
+    bc = _load_bc()
+    unit = {'g': [[0, 0, 2, 0, 2, 2, 0, 2], [10, 10, 11, 10, 11, 11, 10, 11]]}
+    assert abs(bc.city_area_of(unit) - 5.0) < 1e-12   # 4 + 1
+
+def test_shard_shape_is_minimal():
+    """分片里不该有 w/h —— 坐标已经在全国空间里了"""
+    bc = _load_bc()
+    shard = bc.make_shard(530100, [
+        {'n': '五华区', 'a': 530102, 'c': (1.0, 2.0), 'rings': [[(0, 0), (1, 0), (1, 1)]]},
+    ])
+    assert set(shard.keys()) == {'p', 'u'}
+    assert shard['p'] == 530100
+    assert set(shard['u'][0].keys()) == {'n', 'a', 'c', 'g'}
+    assert shard['u'][0]['g'] == [[0.0, 0.0, 1.0, 0.0, 1.0, 1.0]]
+    assert shard['u'][0]['c'] == [1.0, 2.0]
+
 if __name__ == '__main__':
     fns = [v for k, v in sorted(globals().items()) if k.startswith('test_')]
     for fn in fns:
