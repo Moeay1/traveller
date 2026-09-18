@@ -80,6 +80,11 @@ export type MapHandle = {
   focus: (adcode: number) => void
   /** 飞进某个市的区县层 */
   drillInto: (adcode: number) => void
+  /**
+   * 预取某个市的分片。实测一片 12KB 里网络往返占 497ms、解析加建 path 只有 0.5ms，
+   * 所以「下钻慢」完全是一次冷请求的等待 —— 提前取掉它，下钻就是瞬间的。
+   */
+  prefetch: (adcode: number) => void
 }
 
 const DRAG_MIN = 4
@@ -203,6 +208,35 @@ const MapCanvas = forwardRef<MapHandle, Props>(function MapCanvas(
   }, [store, t, visibleCities, shardTick])
 
   const loadingShards = store && t > 0 ? store.pending > 0 : false
+
+  /**
+   * 下钻到位后，空闲时预取锚点最近的几个市。
+   * 在区县层横着拖，下一个市的分片多半已经在手里了。
+   */
+  useEffect(() => {
+    if (!store || t < 1 || drilled === null) return
+    const self = byCode.get(drilled)
+    if (!self) return
+    const near = data.u
+      .filter((u) => u.a !== drilled)
+      .map((u) => ({ a: u.a, d: (u.c[0] - self.c[0]) ** 2 + (u.c[1] - self.c[1]) ** 2 }))
+      .sort((x, y) => x.d - y.d)
+      .slice(0, 8)
+      .map((x) => x.a)
+    let cancelled = false
+    const run = () => {
+      if (cancelled) return
+      store.loadMany(near, 3).then(() => !cancelled && setShardTick((n) => n + 1))
+    }
+    const idle = (window as unknown as {
+      requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number
+    }).requestIdleCallback
+    const id = idle ? idle(run, { timeout: 2500 }) : window.setTimeout(run, 800)
+    return () => {
+      cancelled = true
+      if (!idle) clearTimeout(id)
+    }
+  }, [store, t, drilled, data, byCode])
 
   /* ---------- 多人城市的对角双色/多色填充 ----------
      用硬断点的线性渐变实现：同一颜色连着两个 stop，色与色之间不过渡，
@@ -587,8 +621,12 @@ const MapCanvas = forwardRef<MapHandle, Props>(function MapCanvas(
         setDrilled(adcode)
         flyTo(drillBox(b, aspect, band))
       },
+      prefetch: (adcode: number) => {
+        if (!store) return
+        store.loadIndex().then(() => store.load(adcode).then(() => setShardTick((n) => n + 1)))
+      },
     }),
-    [byCode, view, doZoom, baseView, cityBBox, band, aspect, flyTo],
+    [byCode, view, doZoom, baseView, cityBBox, band, aspect, flyTo, store],
   )
 
   return (

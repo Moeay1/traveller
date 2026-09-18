@@ -39,6 +39,23 @@ export type ShardIndex = {
   shards: Record<string, { n: number; size: number }>
 }
 
+/**
+ * 索引的单例加载。MapApp 要它拿每个市的区县数，ShardStore 要它拿「没有下级」的清单 ——
+ * 两边各取一次会打两个请求，收口到这里共用同一个 promise。
+ */
+const indexCache = new Map<string, Promise<ShardIndex | null>>()
+
+export function loadShardIndex(url: string): Promise<ShardIndex | null> {
+  let p = indexCache.get(url)
+  if (!p) {
+    p = fetch(url)
+      .then((r) => (r.ok ? (r.json() as Promise<ShardIndex>) : null))
+      .catch(() => null)
+    indexCache.set(url, p)
+  }
+  return p
+}
+
 function ringToPath(r: readonly number[]): string {
   let s = `M${r[0]} ${r[1]}`
   for (let i = 2; i < r.length; i += 2) s += `L${r[i]} ${r[i + 1]}`
@@ -69,12 +86,9 @@ export class ShardStore {
   async loadIndex(): Promise<void> {
     if (this.indexLoaded) return
     this.indexLoaded = true
-    try {
-      const idx: ShardIndex = await fetch(this.indexUrl).then((r) => r.json())
-      for (const a of idx.skipped ?? []) this.skipped.add(a)
-    } catch {
-      // 索引拿不到就退化成「请求过一次失败才知道没有」，不影响主流程
-    }
+    // 拿不到就退化成「请求过一次 404 才知道没有」，不影响主流程
+    const idx = await loadShardIndex(this.indexUrl)
+    for (const a of idx?.skipped ?? []) this.skipped.add(a)
   }
 
   get(parent: number): LoadedShard | undefined {
