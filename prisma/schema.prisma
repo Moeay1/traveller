@@ -48,9 +48,15 @@ model Visit {
 
   /// 国家/地区：'CN' 中国 · 'JP' 日本。决定这条记录画在哪张图上
   country   String   @default("CN")
-  /// 地图单元代码。中国是 6 位行政区划码（530100 昆明市），日本是都道府県码（13 东京都）
+  /// 地图单元代码。中国是 6 位行政区划码（530100 昆明市 / 530102 五华区），日本是都道府県码（13 东京都）
+  /// 是市码还是区县码由 level 决定 —— 中国两者都是 6 位，不靠 level 区分不开
   adcode    Int
-  /// 冗余存名称，避免每次查询都要对照地图数据
+  /// 记录粒度：'city' 市级（含本次改动之前的全部老记录）· 'county' 区县级
+  level     String   @default("city")
+  /// 区县级记录的父级市 adcode；市级记录为 null。
+  /// 冗余存一份，全国层做聚合、按市删除时都不用再去对照地图数据
+  parentAdcode Int?
+  /// 冗余存名称，避免每次查询都要对照地图数据。区县级记录这里存区县名
   cityName  String
   province  String
 
@@ -66,4 +72,6 @@ model Visit {
 
   @@index([userId, visitedOn])
   @@index([userId, country, adcode])
+  /// 按市取它名下的区县记录（点亮聚合、按市删除都要用）
+  @@index([userId, country, parentAdcode])
 }
