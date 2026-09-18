@@ -14,3 +14,4 @@ backups/
 # Claude Code 本地状态
 .claude/.cc-writes/
 .claude/settings.local.json
+.claude/worktrees/          # 临时工作树，删掉重建即可，不该进仓库
