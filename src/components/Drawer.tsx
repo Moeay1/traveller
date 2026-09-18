@@ -62,12 +62,20 @@ type Props = {
    * 一个破坏性确认低报删除范围，比不确认更糟。
    */
   deleteScope: { total: number; counties: number }
+  /**
+   * 市级：这座城的区县覆盖 [已记, 总数]。总数为 0 表示这个市没有下级区划
+   * （海南直管县、东莞中山这类不设区的地级市），不显示下钻入口。
+   */
+  countyCoverage: [number, number]
+  /** 进入这座城的区县层 */
+  onDrillIn: () => void
   /** 取消点亮：删掉这个单元（市则连名下区县）的全部到访 */
   onDeleteCity: () => void
 }
 
 export default function Drawer({
   open, target, mode, trips, hiddenByFilter, provinceProgress, inheritedFrom, editing, persons, conf, busy, deleteScope,
+  countyCoverage, onDrillIn,
   onClose, onStartCreate, onStartEdit, onCancelForm, onSubmit, onDelete, onDeleteCity, onGoPersons,
 }: Props) {
   const [date, setDate] = useState(today())
@@ -103,6 +111,9 @@ export default function Drawer({
   /** 「本省进度」这一行的称呼跟着层级换 */
   const progressLabel = isCounty ? '本市区县进度' : `本${conf.groupLabel}进度`
   const progressUnit = isCounty ? '个区县已记' : `${conf.unitLabel}已点亮`
+  const [ctyDone, ctyTotal] = countyCoverage
+  /** 市级、且这个市确实有下级区划时，才给下钻入口 */
+  const canDrill = !isCounty && ctyTotal > 0
 
   return (
     <aside id="rail" className={open ? 'on' : undefined} aria-hidden={!open}>
@@ -140,6 +151,19 @@ export default function Drawer({
                     {trips.length > 0 && (
                       <span style={{ color: 'var(--tx-dim)' }}>　最近 {daysAgo(trips[0].visitedOn)}</span>
                     )}
+                  </dd>
+                </>
+              )}
+              {canDrill && (
+                <>
+                  <dt>区县覆盖</dt>
+                  <dd>
+                    <span className="mono">
+                      {ctyDone}/{ctyTotal}
+                    </span>{' '}
+                    {ctyDone === 0 && lit ? (
+                      <span style={{ color: 'var(--tx-dim)' }}>还没细化到区县</span>
+                    ) : null}
                   </dd>
                 </>
               )}
@@ -215,6 +239,12 @@ export default function Drawer({
                   </div>
                 ))}
               </div>
+            )}
+
+            {canDrill && (
+              <button type="button" className="btn btn-drill" onClick={onDrillIn}>
+                看这座城的 {ctyTotal} 个区县 ↘
+              </button>
             )}
 
             <div className="acts">
