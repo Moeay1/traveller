@@ -113,6 +113,13 @@ input,textarea{font:inherit;color:inherit}
   padding:2px 6px;border-radius:2px;background:var(--paper);color:var(--tx-mid);
   border:1px solid var(--line);vertical-align:2px}
 
+/* 抽屉里的下钻入口。这是区县层唯一的显式发现路径 ——
+   没有它，用户得先把地图放大 5 倍才会知道有这一层 */
+.btn-drill{display:block;width:100%;margin:14px 0 0;padding:10px 12px;
+  border:1px dashed var(--lit);border-radius:var(--r);background:var(--lit-soft);
+  color:#8A5310;font-size:12.5px;text-align:center;transition:.15s}
+.btn-drill:hover{background:var(--lit);color:#fff;border-style:solid}
+
 /* 搜索建议里区县条目的层级标记，跟同名的市区分开 */
 .sug-lvl{font-style:normal;font-size:9px;letter-spacing:.1em;margin-left:6px;
   padding:1px 4px;border-radius:2px;background:var(--lit-soft);color:#8A5310}

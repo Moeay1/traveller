@@ -45,6 +45,8 @@ export default function MapApp({ user, initialRegion }: { user: User; initialReg
   const [countyTotal, setCountyTotal] = useState(0)
   /** 全量区县名录（无几何，112KB）。空闲时再取，不抢首屏 */
   const [countyNames, setCountyNames] = useState<CountyName[]>([])
+  /** 每个市的区县数；没有下级的市不在表里。用来给下钻入口和进度分母 */
+  const [countyCounts, setCountyCounts] = useState<Map<number, number>>(new Map())
   const [mode, setMode] = useState<DrawerMode>('detail')
   const [editing, setEditing] = useState<VisitDTO | null>(null)
   const [open, setOpen] = useState(false)
@@ -91,6 +93,14 @@ export default function MapApp({ user, initialRegion }: { user: User; initialReg
         .then((r) => r.json())
         .then((list: CountyName[]) => alive && setCountyNames(list))
         .catch(() => {}) // 取不到就退化成只搜市，不打扰用户
+      // 索引很小（10KB），顺手拿来做下钻入口的判断和进度分母
+      fetch(drill.index)
+        .then((r) => r.json())
+        .then((idx: { shards: Record<string, { n: number }> }) => {
+          if (!alive) return
+          setCountyCounts(new Map(Object.entries(idx.shards).map(([k, v]) => [Number(k), v.n])))
+        })
+        .catch(() => {})
     }
     const idle = (window as unknown as {
       requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number
@@ -263,20 +273,20 @@ export default function MapApp({ user, initialRegion }: { user: User; initialReg
   const provinceProgress = useMemo((): [number, number] => {
     if (!data || !drawerTarget) return [0, 0]
     if (drawerTarget.level === 'county') {
-      // 本市已记了几个区县 / 该市区县总数（总数来自分片，取不到就只报分子）
       const done = new Set(
         shownVisits
           .filter((v) => v.level === 'county' && v.parentAdcode === drawerTarget.parent)
           .map((v) => v.adcode),
       ).size
-      return [done, countyTotal]
+      // 分母优先取索引（启动后就有），拿不到再退回点击时从分片带上来的数
+      return [done, countyCounts.get(drawerTarget.parent!) ?? countyTotal]
     }
     const prov = byCode.get(drawerTarget.adcode)?.p
     if (!prov) return [0, 0]
     const cities = data.u.filter((u) => u.p === prov)
     const litSet = new Set(shownVisits.map((v) => cityCodeOf(v)))
     return [cities.filter((u) => litSet.has(u.a)).length, cities.length]
-  }, [data, byCode, drawerTarget, shownVisits, countyTotal])
+  }, [data, byCode, drawerTarget, shownVisits, countyTotal, countyCounts])
 
   /* ---------- 交互 ---------- */
   /**
@@ -647,7 +657,15 @@ export default function MapApp({ user, initialRegion }: { user: User; initialReg
           frozen={playing}
           ping={ping}
           onPick={openDetail}
-          onPickDouble={(a) => openForm(a)}
+          onPickDouble={(hit) => {
+            if (hit.level === 'county') {
+              selectCounty(hit.adcode, hit.parent, hit.name)
+              setMode('form')
+              setEditing(null)
+              return
+            }
+            openForm(hit.adcode)
+          }}
           onPickCounty={(sel) =>
             selectCounty(sel.adcode, sel.parent, sel.name, sel.siblingCount)
           }
@@ -670,8 +688,12 @@ export default function MapApp({ user, initialRegion }: { user: User; initialReg
               未指定
             </span>
           )}
-          <span className="desktop-hint">单击看详情 · 双击直接记录</span>
-          <span className="touch-hint">点城市看详情</span>
+          <span className="desktop-hint">
+            单击看详情 · 双击直接记录{conf.drill ? ' · 滚轮放大看区县' : ''}
+          </span>
+          <span className="touch-hint">
+            点城市看详情{conf.drill ? ' · 捏合放大看区县' : ''}
+          </span>
         </div>
 
         {playing && (
@@ -700,6 +722,21 @@ export default function MapApp({ user, initialRegion }: { user: User; initialReg
         provinceProgress={provinceProgress}
         inheritedFrom={inheritedFrom}
         deleteScope={deleteScope}
+        countyCoverage={
+          drawerTarget && drawerTarget.level === 'city'
+            ? [
+                new Set(
+                  shownVisits
+                    .filter((v) => v.level === 'county' && v.parentAdcode === drawerTarget.adcode)
+                    .map((v) => v.adcode),
+                ).size,
+                countyCounts.get(drawerTarget.adcode) ?? 0,
+              ]
+            : [0, 0]
+        }
+        onDrillIn={() => {
+          if (drawerTarget) mapRef.current?.drillInto(drawerTarget.adcode)
+        }}
         editing={editing}
         persons={persons}
         conf={conf}

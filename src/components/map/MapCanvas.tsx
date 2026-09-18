@@ -62,7 +62,8 @@ type Props = {
     colors: string[]
   } | null
   onPick: (adcode: number) => void
-  onPickDouble: (adcode: number) => void
+  /** 双击 = 直接记录当前层级的这个单元。市层给市码，区县层给区县 */
+  onPickDouble: (hit: { level: 'city'; adcode: number } | { level: 'county'; adcode: number; parent: number; name: string }) => void
   onPickCounty: (sel: {
     adcode: number
     parent: number
@@ -501,23 +502,25 @@ const MapCanvas = forwardRef<MapHandle, Props>(function MapCanvas(
     }, 200) // 等一手，看看是不是双击
   }
 
+  /**
+   * 双击 = 直接记录当前层级的这个单元。
+   *
+   * 不要拿双击去做下钻：「双击直接记录」是这个应用原本就有的习惯，
+   * 用下钻劫持它，老用户按老习惯操作会得到一次莫名其妙的缩放。
+   * 下钻的入口是滚轮/捏合放大，以及抽屉里那个显式按钮。
+   */
   const handleDoubleClick = (e: React.MouseEvent) => {
     if (frozen) return
     const hit = hitOf(e.target as Element) ?? downHit.current
     if (!hit) return
     e.preventDefault()
     if (clickTimer.current) clearTimeout(clickTimer.current)
-    const city = hit.kind === 'county' ? hit.parent : hit.adcode
-    // 还在市层时双击 = 飞进区县层；已经在区县层就交给外面（记录一笔）
-    if (band && t < 0.5) {
-      const b = cityBBox.get(city)
-      if (b) {
-        setDrilled(city)
-        flyTo(drillBox(b, aspect, band))
-        return
-      }
+    if (hit.kind === 'county' && t >= 0.5) {
+      const u = store?.get(hit.parent)?.units.find((x) => x.a === hit.adcode)
+      if (u) onPickDouble({ level: 'county', adcode: hit.adcode, parent: hit.parent, name: u.n })
+      return
     }
-    onPickDouble(city)
+    onPickDouble({ level: 'city', adcode: hit.kind === 'county' ? hit.parent : hit.adcode })
   }
 
   useEffect(() => () => { if (clickTimer.current) clearTimeout(clickTimer.current) }, [])
