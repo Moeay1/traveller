@@ -50,7 +50,7 @@
 ```bash
 cp .env.example .env        # 然后把 AUTH_SECRET 换成 openssl rand -base64 32 的输出
 npm install
-npm run db:up               # 起 Postgres，宿主机端口 5433
+npm run db:up               # 起共享 Postgres（infra/，宿主机端口 5432）
 npm run db:push             # 建表
 npm run db:seed             # 写入预置账号
 npm run dev                 # http://localhost:3000
