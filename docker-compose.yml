@@ -1,21 +1,6 @@
-services:
-  db:
-    image: postgres:16-alpine
-    container_name: traveller-db
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: traveller
-      POSTGRES_PASSWORD: traveller
-      POSTGRES_DB: traveller
-    ports:
-      - '5433:5432'
-    volumes:
-      - pgdata:/var/lib/postgresql/data
-    healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U traveller']
-      interval: 5s
-      timeout: 3s
-      retries: 10
-
-volumes:
-  pgdata:
+# 这里已经没有服务了，文件保留只为记录去向。
+#
+# 数据库：2026-09-21 从本项目独有的 traveller-db(:5433) 迁到了跨项目共享实例
+# shared-postgres(:5432)，见 ~/code/github/moeay1/infra/docker-compose.yml。
+# 库名和角色都没变（traveller），只有端口从 5433 改成 5432。
+services: {}
